@@ -1,0 +1,17 @@
+input/
+output/
+temp/
+logs/
+
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+﻿{
+  "title": "Manual Karaoke Editor Layout Sketch",
+  "outputPath": "D:\\_PROJECTS\\iCloudDrive\\iCloud~md~obsidian\\Boaz_brain\\Excalidraw\\Manual Karaoke Editor Layout Sketch.excalidraw.md",
+  "backgroundColor": "#f5f1e8",
+  "theme": "light",
+  "nodes": [
+    { "id": "title", "text": "Manual Karaoke Editor\nLayout Sketch", "kind": "start", "x": 80, "y": 40, "fontSize": 30, "width": 280, "height": 120 },
+    { "id": "note1", "text": "Goal\nManual-first Hebrew karaoke tool\nFewer panels, bigger workspace", "kind": "data", "x": 420, "y": 40, "fontSize": 18, "width": 320, "height": 120 },
+    { "id": "note2", "text": "Design rule\nKeep controls LTR\nKeep lyrics preview RTL", "kind": "data", "x": 760, "y": 40, "fontSize": 18, "width": 300, "height": 120 },
+    { "id": "canvas", "text": "App Canvas", "kind": "default", "x": 60, "y": 190, "fontSize": 18, "width": 1220, "height": 720 },
+    { "id": "sidebar", "text": "Left Sidebar\nImport\nStatus\nProject info\nLine list", "kind": "default", "x": 90, "y": 240, "fontSize": 18, "width": 250, "height": 620 },
+    { "id": "import", "text": "Import Area\nMP3 upload\nLyrics paste / file\nCreate Project", "kind": "data", "x": 120, "y": 280, "fontSize": 16, "width": 190, "height": 140 },
+    { "id": "status", "text": "Status Strip\nProject ready / unsaved\nAudio path\nLine count", "kind": "default", "x": 120, "y": 440, "fontSize": 16, "width": 190, "height": 130 },
+    { "id": "lines", "text": "Line List\nOne line per row\nSelected row highlight\nScroll long songs", "kind": "default", "x": 120, "y": 590, "fontSize": 16, "width": 190, "height": 220 },
+    { "id": "main", "text": "Main Workspace", "kind": "default", "x": 370, "y": 240, "fontSize": 18, "width": 870, "height": 620 },
+    { "id": "preview", "text": "Selected Line Preview\nLarge RTL lyric line\nWord progress highlight", "kind": "default", "x": 400, "y": 280, "fontSize": 18, "width": 510, "height": 170 },
+    { "id": "transport", "text": "Audio Player\nPlay / pause\nPlay line\nJump start\nSeek", "kind": "default", "x": 930, "y": 280, "fontSize": 18, "width": 280, "height": 170 },
+    { "id": "wave", "text": "Waveform\nFull song seek\nGold = selected line\nRed = playhead", "kind": "default", "x": 400, "y": 470, "fontSize": 18, "width": 810, "height": 170 },
+    { "id": "timing", "text": "Timing Inspector\nStart / end fields\nNudge buttons\nGlobal offset\nReset selected", "kind": "default", "x": 400, "y": 660, "fontSize": 18, "width": 810, "height": 170 },
+    { "id": "export", "text": "Export Zone\nSave overrides\nBuild subtitles\nRender MP4", "kind": "end", "x": 980, "y": 660, "fontSize": 18, "width": 230, "height": 170 },
+    { "id": "footer", "text": "Behavior notes\nKeep the screen sparse\nUse one primary accent\nPrefer big controls over dense chrome", "kind": "decision", "x": 80, "y": 940, "fontSize": 18, "width": 640, "height": 140 }
+  ],
+  "edges": []
+}

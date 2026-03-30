@@ -1,0 +1,27 @@
+﻿{
+  "title": "Manual Karaoke Editor Schematic",
+  "outputPath": "D:\\_PROJECTS\\iCloudDrive\\iCloud~md~obsidian\\Boaz_brain\\Excalidraw\\Manual Karaoke Editor Schematic.excalidraw.md",
+  "backgroundColor": "#0b0f14",
+  "nodes": [
+    { "id": "n1", "text": "Manual Karaoke Editor", "kind": "start", "x": 120, "y": 70, "fontSize": 30 },
+    { "id": "n2", "text": "Import Panel\n- MP3 upload\n- Lyrics paste / .txt\n- Create Project", "kind": "data", "x": 60, "y": 170, "fontSize": 18, "width": 280, "height": 150 },
+    { "id": "n3", "text": "Line List\n- One line per row\n- Click to select\n- Reorder / split later", "kind": "default", "x": 60, "y": 360, "fontSize": 18, "width": 280, "height": 150 },
+    { "id": "n4", "text": "Selected Line Preview\n- Large RTL text\n- Highlight current words", "kind": "default", "x": 380, "y": 170, "fontSize": 18, "width": 320, "height": 150 },
+    { "id": "n5", "text": "Audio Player\n- Play / pause\n- Play line\n- Jump start\n- Seek", "kind": "default", "x": 760, "y": 170, "fontSize": 18, "width": 300, "height": 150 },
+    { "id": "n6", "text": "Waveform\n- Click to seek\n- Gold = selected line\n- Red = playhead", "kind": "default", "x": 380, "y": 370, "fontSize": 18, "width": 320, "height": 150 },
+    { "id": "n7", "text": "Timing Inspector\n- Start / end fields\n- Nudge buttons\n- Global offset", "kind": "default", "x": 760, "y": 370, "fontSize": 18, "width": 300, "height": 150 },
+    { "id": "n8", "text": "Export\n- Save overrides\n- Build ASS\n- Render MP4", "kind": "end", "x": 1120, "y": 230, "fontSize": 18, "width": 240, "height": 150 },
+    { "id": "n9", "text": "Notes\n- Manual first\n- Hebrew RTL preview\n- Advanced auto-import hidden", "kind": "decision", "x": 1120, "y": 430, "fontSize": 18, "width": 260, "height": 170 }
+  ],
+  "edges": [
+    { "from": "n1", "to": "n2" },
+    { "from": "n2", "to": "n3" },
+    { "from": "n2", "to": "n4" },
+    { "from": "n4", "to": "n5" },
+    { "from": "n4", "to": "n6" },
+    { "from": "n5", "to": "n7" },
+    { "from": "n6", "to": "n7" },
+    { "from": "n7", "to": "n8" },
+    { "from": "n7", "to": "n9" }
+  ]
+}

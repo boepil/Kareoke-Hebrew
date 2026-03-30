@@ -1,0 +1,1562 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manual Karaoke Editor</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --text: #f3ecdf;
+      --muted: #92a0b6;
+      --accent: #e4b21d;
+      --warn: #ff8f78;
+      --line: rgba(255, 255, 255, 0.08);
+      --r: 24px;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+      --ui: "Aptos", "Segoe UI", sans-serif;
+      --display: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font: 14px/1.45 var(--ui);
+      background:
+        radial-gradient(1200px 700px at 0% 0%, rgba(228, 178, 29, 0.12), transparent 54%),
+        radial-gradient(900px 700px at 100% 0%, rgba(71, 119, 190, 0.10), transparent 48%),
+        linear-gradient(180deg, #10151f 0%, #090c11 60%, #07090d 100%);
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 10px 14px;
+      background: var(--accent);
+      color: #241906;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button.secondary { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+    button.warn { background: var(--warn); color: #2b0d08; }
+    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    input, textarea, select {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--text);
+      padding: 11px 12px;
+      outline: none;
+    }
+    textarea { min-height: 300px; resize: vertical; }
+
+    .shell {
+      width: min(1540px, calc(100vw - 28px));
+      margin: 14px auto;
+      padding: 14px;
+      border-radius: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      box-shadow: var(--shadow);
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr);
+      gap: 26px;
+      min-height: calc(100vh - 56px);
+      align-items: start;
+    }
+    .rail, .workspace { min-width: 0; display: grid; gap: 14px; position: relative; }
+    .rail { z-index: 2; }
+    .workspace { z-index: 1; }
+    .section {
+      border-radius: var(--r);
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      padding: 16px;
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.13em;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    h1, h2, p { margin: 0; }
+    h1 { font: 700 clamp(22px, 2.1vw, 30px) / 1.02 var(--display); letter-spacing: -0.03em; }
+    h2 { font: 700 22px / 1.05 var(--display); letter-spacing: -0.02em; }
+    .muted { color: var(--muted); }
+    .stack, .actions { display: grid; gap: 12px; }
+    .toolbar, .meta, .wordbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar.split { justify-content: space-between; align-items: center; }
+    .toolbar-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .field { display: grid; gap: 7px; }
+    .title-block { display: grid; gap: 6px; margin-bottom: 10px; }
+    .title-block h1 { white-space: nowrap; }
+    .field label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    .field-link {
+      color: var(--muted);
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .field-link:hover {
+      color: var(--accent);
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .chip.ok { color: #d6f5d2; background: rgba(143, 208, 143, 0.16); }
+    .chip.warn { color: #ffd1c5; background: rgba(255, 143, 120, 0.14); }
+    .chip.selected {
+      background: rgba(228, 178, 29, 0.14);
+      border: 1px solid rgba(228, 178, 29, 0.2);
+      font-weight: 700;
+    }
+    .chip.selected .selected-word-text { color: var(--accent); }
+    .chip.selected .selected-word-count {
+      color: var(--text);
+      margin-inline-start: 1.1em;
+    }
+
+    .stage, .editor { display: grid; gap: 14px; }
+    .preview {
+      min-height: 154px;
+      border-radius: 22px;
+      border: 1px solid rgba(255,255,255,0.05);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.15));
+      display: grid;
+      place-items: center;
+      padding: 20px 24px;
+      text-align: center;
+    }
+    .preview.empty {
+      direction: ltr;
+      font: 500 17px/1.4 var(--ui);
+      color: rgba(255,255,255,0.45);
+    }
+    .preview-line {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.24em;
+      font: 700 clamp(34px, 4vw, 56px) / 1.14 var(--display);
+      letter-spacing: -0.03em;
+    }
+    .preview-word { opacity: 0.34; transition: opacity 120ms ease, color 120ms ease, transform 120ms ease; }
+    .preview-word.done { color: rgba(243, 236, 223, 0.95); opacity: 1; }
+    .preview-word.current {
+      color: var(--accent);
+      opacity: 1;
+      transform: translateY(-1px);
+      text-shadow: 0 0 18px rgba(228, 178, 29, 0.3);
+    }
+
+    .editor-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+    .wave-shell {
+      position: relative;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: rgba(8, 11, 17, 0.9);
+      padding: 18px 16px 14px;
+      overflow: hidden;
+    }
+    .word-layer {
+      position: relative;
+      height: 94px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      overflow: hidden;
+    }
+    .word {
+      position: absolute;
+      top: 18px;
+      transform: translateX(-50%);
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: rgba(214, 220, 230, 0.76);
+      white-space: nowrap;
+      cursor: default;
+      user-select: none;
+      direction: auto;
+      font: 700 20px/1 var(--display);
+      letter-spacing: -0.02em;
+      text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+    }
+    .word.alt { top: 48px; }
+    .word.active {
+      color: var(--accent);
+      font-size: 34px;
+      text-shadow: 0 0 18px rgba(228, 178, 29, 0.35);
+    }
+    .word.active.done { color: var(--accent); }
+    .word.done { color: rgba(214, 220, 230, 0.84); }
+
+    canvas {
+      width: 100%;
+      display: block;
+      height: 240px;
+      background: #090c12;
+      border-radius: 16px;
+      margin-top: 14px;
+    }
+    .playhead {
+      position: absolute;
+      top: 18px;
+      bottom: 14px;
+      width: 2px;
+      left: 50%;
+      background: var(--warn);
+      pointer-events: auto;
+      z-index: 3;
+      cursor: ew-resize;
+    }
+    .playhead::before {
+      content: "";
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      width: 14px;
+      height: 14px;
+      transform: translateX(-50%) rotate(45deg);
+      border-radius: 2px;
+      background: var(--warn);
+    }
+    .small { font-size: 12px; color: var(--muted); }
+    .pan {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .pan input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      padding: 0;
+      background: transparent;
+      border: 0;
+    }
+    .pan-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .export-status {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+    }
+    .export-status[hidden] {
+      display: none;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #e4b21d 0%, #ffd76a 100%);
+      transition: width 220ms ease;
+    }
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .path-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+    }
+    .rail-divider {
+      height: 1px;
+      margin: 2px 0 4px;
+      background: var(--line);
+    }
+    .path-value {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    audio { width: 100%; margin-bottom: 12px; }
+
+    @media (max-width: 940px) {
+      .shell { width: calc(100vw - 16px); margin: 8px auto; padding: 10px; }
+      .app { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="app">
+      <aside class="rail">
+        <section class="section">
+          <div class="title-block">
+            <h1>Waveform Karaoke</h1>
+          </div>
+          <div class="stack">
+            <div class="field">
+              <label for="projectName">Project Name</label>
+              <input id="projectName" type="text" placeholder="Name this karaoke project">
+            </div>
+            <div class="field">
+              <label for="projectSelect">Saved Projects</label>
+              <select id="projectSelect">
+                <option value="">No saved projects</option>
+              </select>
+              <button class="secondary" id="selectProject">Load Project</button>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="importProject">Create Project</button>
+            <button id="exportMp4">Export MP4</button>
+            <button class="secondary" id="openMp4">Open MP4</button>
+            <button id="saveOverrides">Save Overrides</button>
+            <button class="secondary" id="reloadProject">Reload Project</button>
+            <button class="ghost" id="resetWord">Reset Selected + Later</button>
+            <button class="ghost" id="resetAll">Reset All</button>
+          </div>
+          <div class="export-status" id="exportStatus" hidden>
+            <div class="progress-meta">
+              <span id="exportStage">Idle</span>
+              <span id="exportPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="exportProgressFill"></div></div>
+            <div class="small" id="exportDetail">No export running.</div>
+          </div>
+          <div class="path-card">
+            <div class="chip" id="projectStatus">No project loaded.</div>
+            <div class="path-value" id="pathsStatus">No output yet.</div>
+          </div>
+          <div class="rail-divider"></div>
+          <div class="stack">
+            <div class="field">
+              <label for="audioFile">Audio File</label>
+              <input id="audioFile" type="file" accept="audio/*">
+            </div>
+            <div class="field">
+              <label for="lyricsText">Lyrics Text</label>
+              <textarea id="lyricsText" placeholder="Paste the whole song lyrics here."></textarea>
+            </div>
+            <div class="field">
+              <label for="lyricsFile">Lyrics File</label>
+              <input id="lyricsFile" type="file" accept=".txt,.html,.htm,text/plain,text/html">
+              <a class="field-link" href="https://shironet.mako.co.il" target="_blank" rel="noreferrer">Open Shironet lyrics site</a>
+              <a class="field-link" id="shironetSearchLink" href="https://shironet.mako.co.il" target="_blank" rel="noreferrer">Find current song on Shironet</a>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <section class="section editor">
+          <div>
+            <p class="eyebrow">Waveform Editor</p>
+            <p class="muted">Move the playhead to the target sound, commit the current word, then continue with the next word.</p>
+          </div>
+          <div class="preview empty" id="preview">Import a project to begin.</div>
+          <audio id="audio" controls preload="metadata"></audio>
+          <div class="toolbar split">
+            <div class="toolbar-group">
+              <button class="secondary" id="rewindStart">Start</button>
+              <button class="secondary" id="playPause">Play / Pause</button>
+              <button class="secondary" id="back2">-2s</button>
+              <button class="secondary" id="jumpWord">Jump To Word</button>
+              <button class="warn" id="placeWord">Set To Playhead</button>
+              <button class="secondary" id="prevWord">Prev</button>
+              <button class="secondary" id="nextWord">Next</button>
+            </div>
+            <div class="toolbar-group">
+              <div class="chip selected" id="selectedWordLabel">Selected word: none</div>
+              <button class="secondary" id="zoomOut" aria-label="Zoom Out">🔍−</button>
+              <button class="secondary" id="zoomIn" aria-label="Zoom In">🔍+</button>
+            </div>
+          </div>
+          <div class="wave-shell" id="waveShell">
+            <div class="word-layer" id="wordLayer"></div>
+            <div class="playhead" id="playhead"></div>
+            <canvas id="waveCanvas" width="1280" height="240"></canvas>
+            <div class="pan">
+              <input id="wavePan" type="range" min="0" max="0" step="0.01" value="0">
+              <div class="pan-meta">
+                <span id="wavePanStart">Window 00:00.00</span>
+                <span id="wavePanEnd">00:00.00</span>
+              </div>
+            </div>
+          </div>
+          <p class="small">Move the playhead to the target sound, then press Set To Playhead. Committed words stay fixed on the waveform and the next word attaches to the playhead.</p>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const MIN_ZOOM_SECONDS = 0.35;
+    const MIN_WORD_ORDER_GAP = 0.001;
+
+    const $ = (id) => document.getElementById(id);
+
+    const ui = {
+      audioFile: $("audioFile"),
+      lyricsText: $("lyricsText"),
+      lyricsFile: $("lyricsFile"),
+      projectName: $("projectName"),
+      projectSelect: $("projectSelect"),
+      selectProject: $("selectProject"),
+      importProject: $("importProject"),
+      projectStatus: $("projectStatus"),
+      pathsStatus: $("pathsStatus"),
+      preview: $("preview"),
+      selectedWordLabel: $("selectedWordLabel"),
+      zoomLabel: $("zoomLabel"),
+      audioTime: $("audioTime"),
+      zoomOut: $("zoomOut"),
+      zoomIn: $("zoomIn"),
+      prevWord: $("prevWord"),
+      nextWord: $("nextWord"),
+      placeWord: $("placeWord"),
+      waveShell: $("waveShell"),
+      wordLayer: $("wordLayer"),
+      waveCanvas: $("waveCanvas"),
+      wavePan: $("wavePan"),
+      wavePanStart: $("wavePanStart"),
+      wavePanEnd: $("wavePanEnd"),
+      playhead: $("playhead"),
+      audio: $("audio"),
+      rewindStart: $("rewindStart"),
+      playPause: $("playPause"),
+      back2: $("back2"),
+      jumpWord: $("jumpWord"),
+      exportMp4: $("exportMp4"),
+      openMp4: $("openMp4"),
+      exportStatus: $("exportStatus"),
+      exportStage: $("exportStage"),
+      exportPercent: $("exportPercent"),
+      exportProgressFill: $("exportProgressFill"),
+      exportDetail: $("exportDetail"),
+      saveOverrides: $("saveOverrides"),
+      reloadProject: $("reloadProject"),
+      resetWord: $("resetWord"),
+      resetAll: $("resetAll"),
+      shironetSearchLink: $("shironetSearchLink"),
+    };
+
+    const state = {
+      session: null,
+      projects: [],
+      manifest: { lines: [], words: [] },
+      overrides: { version: 1, global_offset: 0, placed_word_count: 0, lines: {}, words: {} },
+      waveform: null,
+      baseWords: [],
+      resolvedWords: [],
+      selectedWordIndex: 0,
+      placedWordCount: 0,
+      zoomSeconds: 18,
+      displayWindow: { start: 0, end: 18 },
+      playheadDrag: null,
+      redrawQueued: false,
+      exportPoller: null,
+      exportLocalStartMs: null,
+      outputVideoPath: null,
+    };
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function hasProject() {
+      return state.baseWords.length > 0 && !!state.waveform;
+    }
+
+    function formatClock(seconds) {
+      const safe = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
+      const mins = Math.floor(safe / 60);
+      const secs = Math.floor(safe % 60);
+      const hundredths = Math.floor((safe - Math.floor(safe)) * 100);
+      return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(hundredths).padStart(2, "0")}`;
+    }
+
+    function inferDirection(text) {
+      return /[\u0590-\u05FF\u0600-\u06FF]/.test(text) ? "rtl" : "ltr";
+    }
+
+    function getAudioDuration() {
+      if (Number.isFinite(ui.audio.duration) && ui.audio.duration > 0) {
+        return ui.audio.duration;
+      }
+      if (state.waveform && Number.isFinite(state.waveform.duration)) {
+        return state.waveform.duration;
+      }
+      const last = state.resolvedWords[state.resolvedWords.length - 1];
+      return last ? last.end : 0;
+    }
+
+    function getWordDuration(baseWord) {
+      const duration = baseWord.end - baseWord.start;
+      return duration > 0.01 ? duration : 0.12;
+    }
+
+    function syncResolvedWords() {
+      const overrides = state.overrides.words || {};
+      const manifestWords = Array.isArray(state.manifest.words) ? state.manifest.words : [];
+      state.baseWords = [...manifestWords].sort((a, b) => a.index - b.index);
+      state.resolvedWords = state.baseWords.map((word) => {
+        const override = overrides[word.id] || {};
+        const duration = getWordDuration(word);
+        const start = Number.isFinite(override.start) ? override.start : word.start;
+        const end = Number.isFinite(override.end) ? override.end : word.end;
+        return {
+          ...word,
+          start,
+          end: end > start ? end : start + duration,
+        };
+      });
+      state.placedWordCount = clamp(Number(state.overrides.placed_word_count || 0), 0, state.resolvedWords.length);
+      const currentIndex = Math.min(state.placedWordCount, Math.max(state.resolvedWords.length - 1, 0));
+      state.selectedWordIndex = clamp(currentIndex, 0, Math.max(state.resolvedWords.length - 1, 0));
+    }
+
+    function getResolvedLines() {
+      const wordById = new Map(state.resolvedWords.map((word) => [word.id, word]));
+      const manifestLines = Array.isArray(state.manifest.lines) ? state.manifest.lines : [];
+      return manifestLines.map((line) => {
+        const words = (line.word_ids || []).map((wordId) => wordById.get(wordId)).filter(Boolean);
+        if (!words.length) {
+          return { ...line, words: [], start: line.start || 0, end: line.end || 0 };
+        }
+        return {
+          ...line,
+          words,
+          start: words[0].start,
+          end: words[words.length - 1].end,
+        };
+      });
+    }
+
+    function getSelectedWord() {
+      return state.resolvedWords[state.selectedWordIndex] || null;
+    }
+
+    function updateStatusChip(element, text, mode) {
+      element.textContent = text;
+      element.className = "chip";
+      if (mode) {
+        element.classList.add(mode);
+      }
+    }
+
+    function renderSelectedWordLabel(selectedWord) {
+      const wordText = selectedWord ? selectedWord.text : "none";
+      const selectedPosition = selectedWord ? selectedWord.index + 1 : 0;
+      ui.selectedWordLabel.innerHTML = "";
+      const wordSpan = document.createElement("span");
+      wordSpan.className = "selected-word-text";
+      wordSpan.textContent = wordText;
+      const spacer = document.createTextNode(" ");
+      const countSpan = document.createElement("span");
+      countSpan.className = "selected-word-count";
+      countSpan.textContent = `${selectedPosition}/${state.resolvedWords.length}`;
+      ui.selectedWordLabel.append(wordSpan, spacer, countSpan);
+    }
+
+    function displayOutputName(rawPath) {
+      if (!rawPath) {
+        return "No output yet.";
+      }
+      const normalized = String(rawPath).split(/[\\/]/).filter(Boolean);
+      return normalized.length ? normalized[normalized.length - 1] : String(rawPath);
+    }
+
+    function deriveSongSearchQuery() {
+      const rawName = state.session?.source_name || state.session?.original_audio_name || "";
+      if (!rawName) {
+        return "";
+      }
+      let query = displayOutputName(rawName).replace(/\.[^.]+$/, "");
+      query = query.replace(/\((youtube|official|lyrics?)\)/gi, " ");
+      query = query.replace(/\b(youtube|lyrics?)\b/gi, " ");
+      query = query.replace(/\s+/g, " ").trim();
+      return query;
+    }
+
+    function updateShironetLink() {
+      if (!ui.shironetSearchLink) {
+        return;
+      }
+      const query = deriveSongSearchQuery();
+      if (!query) {
+        ui.shironetSearchLink.href = "https://shironet.mako.co.il";
+        ui.shironetSearchLink.textContent = "Find current song on Shironet";
+        return;
+      }
+      const searchQuery = `site:shironet.mako.co.il ${query}`;
+      ui.shironetSearchLink.href = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
+      ui.shironetSearchLink.textContent = `Find "${query}" on Shironet`;
+    }
+
+    function deriveLyricsTextFromManifest() {
+      if (!Array.isArray(state.manifest.lines)) {
+        return "";
+      }
+      const lines = state.manifest.lines
+        .map((line) => (line && typeof line.text === "string" ? line.text.trim() : ""))
+        .filter(Boolean);
+      return lines.join("\n");
+    }
+
+    function renderProjectSelect(currentProjectId) {
+      if (!ui.projectSelect) {
+        return;
+      }
+      const selectedId = currentProjectId || state.session?.project_id || "";
+      ui.projectSelect.innerHTML = "";
+      if (!state.projects.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No saved projects";
+        ui.projectSelect.appendChild(option);
+        return;
+      }
+      state.projects.forEach((project) => {
+        const option = document.createElement("option");
+        option.value = project.id;
+        option.textContent = project.name;
+        option.selected = project.id === selectedId;
+        ui.projectSelect.appendChild(option);
+      });
+    }
+
+    function estimatedExportProgress(payload) {
+      const rawProgress = Number(payload?.progress);
+      const reportedProgress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(rawProgress, 100)) : 0;
+      if (!["queued", "building_subtitles", "rendering"].includes(payload?.status)) {
+        return reportedProgress;
+      }
+
+      const parsedStartedAt = payload?.started_at ? Date.parse(payload.started_at) : NaN;
+      const startedMs = Number.isFinite(parsedStartedAt) ? parsedStartedAt : state.exportLocalStartMs;
+      const estimatedTotalSeconds = Number(payload?.estimated_total_seconds);
+      if (!startedMs || !Number.isFinite(estimatedTotalSeconds) || estimatedTotalSeconds <= 0) {
+        return reportedProgress;
+      }
+
+      const elapsedSeconds = Math.max((Date.now() - startedMs) / 1000, 0);
+      const estimatedProgress = Math.min(Math.max(15 + (elapsedSeconds / estimatedTotalSeconds) * 75, 0), 90);
+      return Math.max(reportedProgress, Math.round(estimatedProgress));
+    }
+
+    function renderExportStatus(payload) {
+      const status = payload?.status || "idle";
+      const detail = payload?.detail || payload?.status || "Idle";
+      const progress = estimatedExportProgress(payload);
+
+      if (status === "idle") {
+        ui.exportStatus.hidden = true;
+        ui.exportStage.textContent = "Idle";
+        ui.exportPercent.textContent = "0%";
+        ui.exportProgressFill.style.width = "0%";
+        ui.exportDetail.textContent = "No export running.";
+        state.outputVideoPath = null;
+        ui.openMp4.disabled = true;
+        state.exportLocalStartMs = null;
+        return;
+      }
+
+      state.outputVideoPath = payload?.output_video || null;
+      ui.exportStatus.hidden = false;
+      ui.exportStage.textContent = detail;
+      ui.exportPercent.textContent = `${progress}%`;
+      ui.exportProgressFill.style.width = `${progress}%`;
+      ui.exportDetail.textContent = payload?.error || payload?.output_video || `Status: ${status}`;
+      ui.openMp4.disabled = !state.outputVideoPath;
+    }
+
+    async function syncExportStatus() {
+      const payload = await fetchJson("/api/export/status");
+      if (payload?.started_at) {
+        const parsedStartedAt = Date.parse(payload.started_at);
+        if (Number.isFinite(parsedStartedAt)) {
+          state.exportLocalStartMs = parsedStartedAt;
+        }
+      }
+      renderExportStatus(payload);
+      return payload;
+    }
+
+    function stopExportPolling() {
+      if (state.exportPoller) {
+        clearInterval(state.exportPoller);
+        state.exportPoller = null;
+      }
+    }
+
+    function startExportPolling() {
+      stopExportPolling();
+      state.exportPoller = setInterval(async () => {
+        try {
+          const payload = await syncExportStatus();
+          if (!["queued", "building_subtitles", "rendering"].includes(payload.status)) {
+            stopExportPolling();
+            ui.exportMp4.disabled = false;
+          }
+        } catch (_) {
+          stopExportPolling();
+          ui.exportMp4.disabled = false;
+        }
+      }, 2000);
+    }
+
+    function setSelectedWord(index, options = {}) {
+      if (!state.resolvedWords.length) {
+        state.selectedWordIndex = 0;
+        renderAll();
+        return;
+      }
+      const maxSelectable = state.placedWordCount >= state.resolvedWords.length
+        ? Math.max(state.resolvedWords.length - 1, 0)
+        : Math.min(state.placedWordCount, state.resolvedWords.length - 1);
+      state.selectedWordIndex = clamp(index, 0, maxSelectable);
+      if (options.seek) {
+        const selected = getSelectedWord();
+        if (selected) {
+          setPlayheadTime(selected.start);
+          setWindowAround(selected.start);
+        }
+      }
+      renderAll();
+    }
+
+    function updateWindow() {
+      const duration = getAudioDuration();
+      const zoom = clamp(state.zoomSeconds, MIN_ZOOM_SECONDS, Math.max(duration || 18, MIN_ZOOM_SECONDS));
+      state.zoomSeconds = zoom;
+      const currentTime = clamp(ui.audio.currentTime || 0, 0, duration);
+      let start = state.displayWindow.start || 0;
+      if (state.displayWindow.end - state.displayWindow.start <= 0.001) {
+        start = clamp(currentTime - zoom / 2, 0, Math.max(duration - zoom, 0));
+      }
+      start = clamp(start, 0, Math.max(duration - zoom, 0));
+      state.displayWindow = { start, end: start + zoom };
+      if (ui.zoomLabel) {
+        ui.zoomLabel.textContent = `Zoom ${zoom.toFixed(1)}s`;
+      }
+      if (ui.audioTime) {
+        ui.audioTime.textContent = `${formatClock(currentTime)} / ${formatClock(duration)}`;
+      }
+      const maxPan = Math.max(duration - zoom, 0);
+      ui.wavePan.max = String(maxPan);
+      ui.wavePan.value = String(clamp(start, 0, maxPan));
+      ui.wavePanStart.textContent = `Window ${formatClock(start)}`;
+      ui.wavePanEnd.textContent = formatClock(Math.min(start + zoom, duration));
+    }
+
+    function setWindowAround(time) {
+      const duration = getAudioDuration();
+      const start = clamp(time - state.zoomSeconds / 2, 0, Math.max(duration - state.zoomSeconds, 0));
+      state.displayWindow = { start, end: start + state.zoomSeconds };
+    }
+
+    function setPlayheadTime(target) {
+      const nextTime = clamp(target, 0, getAudioDuration());
+      ui.audio.currentTime = nextTime;
+    }
+
+    function buildOverridesFromResolvedWords() {
+      const words = {};
+      state.resolvedWords.forEach((word, index) => {
+        const base = state.baseWords[index];
+        if (!base) {
+          return;
+        }
+        if (Math.abs(word.start - base.start) > 0.001 || Math.abs(word.end - base.end) > 0.001) {
+          words[word.id] = {
+            start: Number(word.start.toFixed(3)),
+            end: Number(word.end.toFixed(3)),
+          };
+        }
+      });
+      state.overrides.words = words;
+      state.overrides.lines = {};
+      state.overrides.placed_word_count = state.placedWordCount;
+    }
+
+    function setWordStart(index, targetStart) {
+      if (!state.resolvedWords.length || index < 0 || index >= state.resolvedWords.length) {
+        return false;
+      }
+      const nextWords = state.resolvedWords.map((word) => ({ ...word }));
+      const current = nextWords[index];
+      const previous = nextWords[index - 1] || null;
+      const minStart = previous ? previous.start + MIN_WORD_ORDER_GAP : 0;
+      const duration = getAudioDuration();
+      const wordDuration = Math.max(current.end - current.start, 0.12);
+      const clampedStart = clamp(targetStart, minStart, Math.max(duration - wordDuration, minStart));
+
+      current.start = Number(clampedStart.toFixed(3));
+      current.end = Number((clampedStart + wordDuration).toFixed(3));
+      state.resolvedWords = nextWords;
+      buildOverridesFromResolvedWords();
+      return true;
+    }
+
+    function commitCurrentWord(targetStart) {
+      const currentIndex = state.selectedWordIndex;
+      if (!setWordStart(state.selectedWordIndex, targetStart)) {
+        return false;
+      }
+      const wasAlreadyPlaced = currentIndex < state.placedWordCount;
+      if (!wasAlreadyPlaced) {
+        state.placedWordCount = Math.min(currentIndex + 1, state.resolvedWords.length);
+        const nextDraftIndex = Math.min(state.placedWordCount, Math.max(state.resolvedWords.length - 1, 0));
+        state.selectedWordIndex = nextDraftIndex;
+      } else {
+        state.selectedWordIndex = currentIndex;
+      }
+      buildOverridesFromResolvedWords();
+      return true;
+    }
+
+    function resetSelectedSuffix() {
+      if (!state.baseWords.length) {
+        return;
+      }
+      const keepWords = {};
+      Object.entries(state.overrides.words || {}).forEach(([wordId, override]) => {
+        const index = state.baseWords.findIndex((word) => word.id === wordId);
+        if (index !== -1 && index < state.selectedWordIndex) {
+          keepWords[wordId] = override;
+        }
+      });
+      state.overrides.words = keepWords;
+      state.placedWordCount = Math.min(state.selectedWordIndex, state.baseWords.length);
+      state.overrides.placed_word_count = state.placedWordCount;
+      syncResolvedWords();
+      renderAll();
+    }
+
+    function resetAllOverrides() {
+      state.overrides.words = {};
+      state.overrides.lines = {};
+      state.placedWordCount = 0;
+      state.overrides.placed_word_count = 0;
+      syncResolvedWords();
+      renderAll();
+    }
+
+    function timeToPercent(time) {
+      const span = Math.max(state.displayWindow.end - state.displayWindow.start, 0.001);
+      return ((time - state.displayWindow.start) / span) * 100;
+    }
+
+    function isWordPlaced(index) {
+      return index < state.placedWordCount;
+    }
+
+    function getDisplayStartForWord(index) {
+      const word = state.resolvedWords[index];
+      if (!word) {
+        return state.displayWindow.start;
+      }
+      if (isWordPlaced(index) || index !== state.selectedWordIndex) {
+        return word.start;
+      }
+      return ui.audio.currentTime || state.displayWindow.start + (state.displayWindow.end - state.displayWindow.start) / 2;
+    }
+
+    function getPreviewWordSnapshot() {
+      const currentTime = ui.audio.currentTime || 0;
+      const includeSelectedWord = ui.audio.paused && state.selectedWordIndex >= state.placedWordCount;
+      const snapshot = new Map();
+
+      state.resolvedWords.forEach((word, index) => {
+        if (index < state.placedWordCount) {
+          snapshot.set(word.id, {
+            ...word,
+            previewStart: word.start,
+            previewEnd: word.end,
+          });
+        }
+      });
+
+      const selectedWord = getSelectedWord();
+      if (includeSelectedWord && selectedWord) {
+        const duration = Math.max(selectedWord.end - selectedWord.start, 0.12);
+        snapshot.set(selectedWord.id, {
+          ...selectedWord,
+          previewStart: currentTime,
+          previewEnd: currentTime + duration,
+        });
+      }
+
+      return snapshot;
+    }
+
+    function getActivePreviewWord(previewWords) {
+      const currentTime = ui.audio.currentTime || 0;
+      const selectedWord = getSelectedWord();
+      if (selectedWord) {
+        const selectedPreview = previewWords.get(selectedWord.id);
+        if (
+          selectedPreview
+          && currentTime >= selectedPreview.previewStart
+          && currentTime < selectedPreview.previewEnd
+        ) {
+          return selectedPreview;
+        }
+      }
+
+      const placedCandidates = [...previewWords.values()]
+        .filter((word) => word.index < state.placedWordCount)
+        .sort((a, b) => b.previewStart - a.previewStart);
+      const playingPlacedWord = placedCandidates.find(
+        (word) => currentTime >= word.previewStart && currentTime < word.previewEnd,
+      );
+      if (playingPlacedWord) {
+        return playingPlacedWord;
+      }
+
+      return placedCandidates.find((word) => currentTime >= word.previewStart) || null;
+    }
+
+    function getVisibleWords() {
+      const visible = [];
+      const showAllWords = state.placedWordCount >= state.resolvedWords.length;
+      for (let index = 0; index < state.resolvedWords.length; index += 1) {
+        if (!showAllWords && !isWordPlaced(index) && index !== state.selectedWordIndex) {
+          continue;
+        }
+        const word = state.resolvedWords[index];
+        const rawStart = getDisplayStartForWord(index);
+        const displayStart = index === state.selectedWordIndex && !isWordPlaced(index)
+          ? clamp(rawStart, state.displayWindow.start, state.displayWindow.end)
+          : rawStart;
+        visible.push({
+          ...word,
+          displayStart,
+          displayEnd: displayStart + Math.max(word.end - word.start, 0.12),
+          isPlaced: isWordPlaced(index),
+          isActive: index === state.selectedWordIndex,
+        });
+      }
+      return visible.filter((word) => word.displayEnd >= state.displayWindow.start - 0.3 && word.displayStart <= state.displayWindow.end + 0.3);
+    }
+
+    function findPreviewLine() {
+      const lines = getResolvedLines();
+      if (!lines.length) {
+        return null;
+      }
+      const previewWords = getPreviewWordSnapshot();
+      const activeWord = getActivePreviewWord(previewWords);
+      if (activeWord) {
+        const activeLine = lines.find((line) => line.index === activeWord.line_index);
+        if (activeLine) {
+          return activeLine;
+        }
+      }
+
+      const currentTime = ui.audio.currentTime || 0;
+      const latestStartedWord = [...previewWords.values()]
+        .sort((a, b) => b.previewStart - a.previewStart)
+        .find((word) => currentTime >= word.previewStart);
+      if (latestStartedWord) {
+        const latestLine = lines.find((line) => line.index === latestStartedWord.line_index);
+        if (latestLine) {
+          return latestLine;
+        }
+      }
+
+      const selectedWord = getSelectedWord();
+      if (selectedWord) {
+        const selectedLine = lines.find((line) => line.index === selectedWord.line_index);
+        if (selectedLine) {
+          return selectedLine;
+        }
+      }
+
+      return lines[0];
+    }
+
+    function renderPreview() {
+      const previewLine = findPreviewLine();
+      const previewWords = getPreviewWordSnapshot();
+      const activePreviewWord = getActivePreviewWord(previewWords);
+      const selectedWord = getSelectedWord();
+
+      if (!previewLine || !previewLine.words.length) {
+        ui.preview.className = "preview empty";
+        ui.preview.textContent = "Import a project to begin.";
+        renderSelectedWordLabel(selectedWord);
+        return;
+      }
+
+      renderSelectedWordLabel(selectedWord);
+
+      const previewDirection = inferDirection(previewLine.text || previewLine.words.map((word) => word.text).join(" "));
+      ui.preview.className = "preview";
+      ui.preview.innerHTML = "";
+      ui.preview.dir = previewDirection;
+
+      const line = document.createElement("div");
+      line.className = "preview-line";
+      line.dir = previewDirection;
+
+      previewLine.words.forEach((word) => {
+        const span = document.createElement("span");
+        span.className = "preview-word";
+        span.textContent = word.text;
+        if (activePreviewWord && word.index < activePreviewWord.index && word.line_index === activePreviewWord.line_index) {
+          span.classList.add("done");
+        } else if (activePreviewWord && word.id === activePreviewWord.id) {
+          span.classList.add("current");
+        } else if (selectedWord && word.id === selectedWord.id) {
+          span.classList.add("current");
+        }
+        line.appendChild(span);
+      });
+
+      ui.preview.appendChild(line);
+    }
+
+    function renderWordLayer() {
+      ui.wordLayer.innerHTML = "";
+      const visibleWords = getVisibleWords();
+
+      visibleWords.forEach((word) => {
+        const element = document.createElement("button");
+        element.type = "button";
+        element.className = "word";
+        if (word.index % 2 === 1) {
+          element.classList.add("alt");
+        }
+        if (word.isActive) {
+          element.classList.add("active");
+        }
+        if (word.isPlaced) {
+          element.classList.add("done");
+        }
+        element.style.left = `${timeToPercent(word.displayStart)}%`;
+        element.textContent = word.text;
+        element.dataset.wordId = word.id;
+        element.dir = inferDirection(word.text);
+        element.addEventListener("click", (event) => {
+          event.preventDefault();
+          setSelectedWord(word.index);
+        });
+        ui.wordLayer.appendChild(element);
+      });
+    }
+
+    function drawWaveform() {
+      const canvas = ui.waveCanvas;
+      const rect = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(Math.floor(rect.width * ratio), 1);
+      const height = Math.max(Math.floor(rect.height * ratio), 1);
+
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      const context = canvas.getContext("2d");
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = "#090c12";
+      context.fillRect(0, 0, width, height);
+
+      if (!state.waveform || !state.waveform.peaks || !state.waveform.peaks.length) {
+        context.fillStyle = "rgba(255,255,255,0.35)";
+        context.font = `${16 * ratio}px Aptos, Segoe UI, sans-serif`;
+        context.fillText("Waveform unavailable", 24 * ratio, height / 2);
+        return;
+      }
+
+      const peaks = state.waveform.peaks;
+      const duration = Math.max(state.waveform.duration || 0, 0.001);
+      const startRatio = state.displayWindow.start / duration;
+      const endRatio = state.displayWindow.end / duration;
+      const startIndex = clamp(Math.floor(startRatio * peaks.length), 0, peaks.length - 1);
+      const endIndex = clamp(Math.ceil(endRatio * peaks.length), startIndex + 1, peaks.length);
+      const visible = peaks.slice(startIndex, endIndex);
+      const mid = height / 2;
+      const step = width / Math.max(visible.length, 1);
+
+      context.strokeStyle = "rgba(143, 160, 182, 0.72)";
+      context.lineWidth = Math.max(1, ratio);
+      context.beginPath();
+
+      for (let index = 0; index < visible.length; index += 1) {
+        const amplitude = visible[index];
+        const x = index * step;
+        const bar = Math.max(amplitude * (height * 0.42), 1 * ratio);
+        context.moveTo(x, mid - bar);
+        context.lineTo(x, mid + bar);
+      }
+      context.stroke();
+
+      const selected = getSelectedWord();
+      if (selected) {
+        const displayStart = getDisplayStartForWord(state.selectedWordIndex);
+        const displayEnd = displayStart + Math.max(selected.end - selected.start, 0.12);
+        if (displayEnd < state.displayWindow.start || displayStart > state.displayWindow.end) {
+          return;
+        }
+        const startX = (timeToPercent(displayStart) / 100) * width;
+        const endX = (timeToPercent(displayEnd) / 100) * width;
+        context.fillStyle = "rgba(228, 178, 29, 0.12)";
+        context.fillRect(startX, 0, Math.max(endX - startX, 2), height);
+      }
+    }
+
+    function renderButtons() {
+      const hasWords = state.resolvedWords.length > 0;
+      [
+        ui.zoomOut,
+        ui.zoomIn,
+        ui.prevWord,
+        ui.nextWord,
+        ui.placeWord,
+        ui.rewindStart,
+        ui.playPause,
+        ui.back2,
+        ui.jumpWord,
+        ui.exportMp4,
+        ui.openMp4,
+        ui.saveOverrides,
+        ui.reloadProject,
+        ui.resetWord,
+        ui.resetAll,
+      ].forEach((button) => {
+        button.disabled = !hasWords && button !== ui.reloadProject;
+      });
+      ui.openMp4.disabled = !state.outputVideoPath;
+    }
+
+    function renderAll() {
+      updateWindow();
+      const playheadPercent = clamp(timeToPercent(ui.audio.currentTime || 0), 0, 100);
+      ui.playhead.style.left = `${playheadPercent}%`;
+      renderPreview();
+      renderWordLayer();
+      drawWaveform();
+      renderButtons();
+    }
+
+    function queueRender() {
+      if (state.redrawQueued) {
+        return;
+      }
+      state.redrawQueued = true;
+      requestAnimationFrame(() => {
+        state.redrawQueued = false;
+        renderAll();
+      });
+    }
+
+    function beginPlayheadDrag(event) {
+      event.preventDefault();
+      if (!hasProject()) {
+        return;
+      }
+
+      const waveRect = ui.waveCanvas.getBoundingClientRect();
+      state.playheadDrag = {
+        pointerId: event.pointerId,
+        left: waveRect.left,
+        width: Math.max(waveRect.width, 1),
+      };
+      window.addEventListener("pointermove", onPlayheadDragMove);
+      window.addEventListener("pointerup", endPlayheadDrag);
+      window.addEventListener("pointercancel", endPlayheadDrag);
+      onPlayheadDragMove(event);
+    }
+
+    function onPlayheadDragMove(event) {
+      if (!state.playheadDrag || event.pointerId !== state.playheadDrag.pointerId) {
+        return;
+      }
+      const ratio = clamp((event.clientX - state.playheadDrag.left) / state.playheadDrag.width, 0, 1);
+      const targetStart = state.displayWindow.start + ratio * (state.displayWindow.end - state.displayWindow.start);
+      setPlayheadTime(targetStart);
+      queueRender();
+    }
+
+    function endPlayheadDrag(event) {
+      if (!state.playheadDrag || (event.pointerId !== undefined && event.pointerId !== state.playheadDrag.pointerId)) {
+        return;
+      }
+      state.playheadDrag = null;
+      window.removeEventListener("pointermove", onPlayheadDragMove);
+      window.removeEventListener("pointerup", endPlayheadDrag);
+      window.removeEventListener("pointercancel", endPlayheadDrag);
+      renderAll();
+    }
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = payload && payload.error ? payload.error : `Request failed: ${response.status}`;
+        throw new Error(error);
+      }
+      return payload;
+    }
+
+    async function loadProject(options = {}) {
+      const bust = options.bustCache ? `?t=${Date.now()}` : "";
+      const projectsPayload = await fetchJson(`/api/projects${bust}`);
+      state.projects = Array.isArray(projectsPayload.projects) ? projectsPayload.projects : [];
+      renderProjectSelect(projectsPayload.current_project_id);
+      state.session = await fetchJson(`/api/session${bust}`);
+      if (ui.projectName && typeof state.session.project_name === "string") {
+        ui.projectName.value = state.session.project_name;
+      }
+      ui.pathsStatus.textContent = displayOutputName(state.session.output_video_name);
+      if (typeof state.session.lyrics_text === "string") {
+        ui.lyricsText.value = state.session.lyrics_text;
+      }
+      updateShironetLink();
+      renderProjectSelect(state.session.project_id);
+
+      try {
+        state.manifest = await fetchJson(`/api/manifest${bust}`);
+      } catch (_) {
+        state.manifest = { lines: [], words: [] };
+      }
+      try {
+        state.overrides = await fetchJson(`/api/overrides${bust}`);
+      } catch (_) {
+        state.overrides = { version: 1, global_offset: 0, placed_word_count: 0, lines: {}, words: {} };
+      }
+      try {
+        state.waveform = await fetchJson(`/api/waveform?bins=2600&t=${Date.now()}`);
+        ui.audio.src = `/api/audio?t=${Date.now()}`;
+      } catch (_) {
+        state.waveform = null;
+        ui.audio.removeAttribute("src");
+      }
+
+      if (!ui.lyricsText.value.trim()) {
+        ui.lyricsText.value = deriveLyricsTextFromManifest();
+      }
+      updateShironetLink();
+
+      syncResolvedWords();
+      if (state.waveform) {
+        updateStatusChip(ui.projectStatus, `Ready: ${state.resolvedWords.length} words`, state.resolvedWords.length ? "ok" : undefined);
+      } else if (state.session.project_name) {
+        updateStatusChip(ui.projectStatus, `Project ready: ${state.session.project_name}`, "ok");
+      }
+      try {
+        const exportStatus = await syncExportStatus();
+        if (["queued", "building_subtitles", "rendering"].includes(exportStatus.status)) {
+          ui.exportMp4.disabled = true;
+          startExportPolling();
+        } else {
+          ui.exportMp4.disabled = false;
+        }
+      } catch (_) {
+        renderExportStatus({ status: "idle", detail: "Idle", progress: 0 });
+      }
+      renderAll();
+    }
+
+    async function importProject() {
+      const projectName = ui.projectName.value.trim();
+      const lyricsText = ui.lyricsText.value.trim();
+      const hasAudio = Boolean(ui.audioFile.files && ui.audioFile.files[0]);
+      const hasLyricsFile = Boolean(ui.lyricsFile.files && ui.lyricsFile.files[0]);
+
+      if (!hasAudio) {
+        ui.importProject.disabled = true;
+        updateStatusChip(ui.projectStatus, "Creating project...");
+        try {
+          await fetchJson("/api/projects/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              project_name: projectName,
+              lyrics_text: lyricsText,
+            }),
+          });
+          await loadProject({ bustCache: true });
+        } catch (error) {
+          updateStatusChip(ui.projectStatus, error.message, "warn");
+        } finally {
+          ui.importProject.disabled = false;
+        }
+        return;
+      }
+
+      const form = new FormData();
+      form.append("audio_file", ui.audioFile.files[0]);
+      form.append("project_name", projectName || ui.audioFile.files[0].name.replace(/\.[^.]+$/, ""));
+      if (lyricsText) {
+        form.append("lyrics_text", lyricsText);
+      }
+      if (hasLyricsFile) {
+        form.append("lyrics_file", ui.lyricsFile.files[0]);
+      }
+
+      ui.importProject.disabled = true;
+      updateStatusChip(ui.projectStatus, "Importing project...");
+
+      try {
+        await fetchJson("/api/import", { method: "POST", body: form });
+        await loadProject({ bustCache: true });
+      } catch (error) {
+        updateStatusChip(ui.projectStatus, error.message, "warn");
+      } finally {
+        ui.importProject.disabled = false;
+      }
+    }
+
+    async function saveOverrides() {
+      try {
+        buildOverridesFromResolvedWords();
+        const payload = {
+          version: 1,
+          global_offset: 0,
+          placed_word_count: state.placedWordCount,
+          lyrics_text: ui.lyricsText.value.trim(),
+          lines: {},
+          words: state.overrides.words,
+        };
+        await fetchJson("/api/overrides", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        updateStatusChip(ui.projectStatus, `Saved ${Object.keys(state.overrides.words).length} word overrides`, "ok");
+      } catch (error) {
+        updateStatusChip(ui.projectStatus, error.message, "warn");
+      }
+    }
+
+    async function exportMp4() {
+      try {
+        ui.exportMp4.disabled = true;
+        updateStatusChip(ui.projectStatus, "Rendering MP4...");
+        buildOverridesFromResolvedWords();
+        await fetchJson("/api/overrides", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            version: 1,
+            global_offset: 0,
+            placed_word_count: state.placedWordCount,
+            lyrics_text: ui.lyricsText.value.trim(),
+            lines: {},
+            words: state.overrides.words,
+          }),
+        });
+        state.exportLocalStartMs = Date.now();
+        let payload = await fetchJson("/api/export/mp4", { method: "POST" });
+        renderExportStatus(payload);
+        startExportPolling();
+        while (["queued", "building_subtitles", "rendering"].includes(payload.status)) {
+          const detail = payload.detail ? `${payload.detail}` : payload.status;
+          const percent = `${estimatedExportProgress(payload)}%`;
+          updateStatusChip(ui.projectStatus, `Rendering MP4: ${detail} ${percent}`.trim());
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          payload = await syncExportStatus();
+        }
+        stopExportPolling();
+        if (payload.status === "error") {
+          throw new Error(payload.error || "MP4 export failed");
+        }
+        updateStatusChip(ui.projectStatus, `Exported ${payload.output_video}`, "ok");
+        ui.pathsStatus.textContent = displayOutputName(payload.output_video || state.session?.output_video_name);
+        renderExportStatus(payload);
+      } catch (error) {
+        stopExportPolling();
+        updateStatusChip(ui.projectStatus, error.message, "warn");
+      } finally {
+        ui.exportMp4.disabled = false;
+      }
+    }
+
+    async function openMp4() {
+      try {
+        const payload = await fetchJson("/api/output/open", { method: "POST" });
+        state.outputVideoPath = payload.output_video || state.outputVideoPath;
+        ui.openMp4.disabled = false;
+        ui.pathsStatus.textContent = displayOutputName(payload.output_video || state.session?.output_video_name);
+      } catch (error) {
+        updateStatusChip(ui.projectStatus, error.message, "warn");
+      }
+    }
+
+    async function selectProject() {
+      const projectId = ui.projectSelect?.value || "";
+      if (!projectId) {
+        return;
+      }
+      await fetchJson("/api/projects/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId }),
+      });
+      await loadProject({ bustCache: true });
+    }
+
+    function placeSelectedWordAtPlayhead() {
+      const selected = getSelectedWord();
+      if (!selected) {
+        return;
+      }
+      const changed = commitCurrentWord(ui.audio.currentTime || 0);
+      if (changed) {
+        renderAll();
+      }
+    }
+
+    function seekRelative(delta) {
+      ui.audio.currentTime = clamp((ui.audio.currentTime || 0) + delta, 0, getAudioDuration());
+      renderAll();
+    }
+
+    function seekToStart() {
+      ui.audio.currentTime = 0;
+      setWindowAround(0);
+      renderAll();
+    }
+
+    function jumpToSelectedWord() {
+      const selected = getSelectedWord();
+      if (!selected) {
+        return;
+      }
+      ui.audio.currentTime = clamp(selected.start, 0, getAudioDuration());
+      renderAll();
+    }
+
+    function seekFromWaveform(event) {
+      if (!hasProject()) {
+        return;
+      }
+      const rect = ui.waveCanvas.getBoundingClientRect();
+      const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+      const target = state.displayWindow.start + ratio * (state.displayWindow.end - state.displayWindow.start);
+      setPlayheadTime(target);
+      renderAll();
+    }
+
+    function panWaveformWindow(targetStart) {
+      const duration = getAudioDuration();
+      const maxStart = Math.max(duration - state.zoomSeconds, 0);
+      const start = clamp(targetStart, 0, maxStart);
+      state.displayWindow = { start, end: start + state.zoomSeconds };
+      renderAll();
+    }
+
+    function bindEvents() {
+      ui.importProject.addEventListener("click", importProject);
+
+      ui.lyricsFile.addEventListener("change", async () => {
+        const file = ui.lyricsFile.files && ui.lyricsFile.files[0];
+        if (!file) {
+          return;
+        }
+        ui.lyricsText.value = await file.text();
+      });
+
+      ui.zoomOut.addEventListener("click", () => {
+        state.zoomSeconds = clamp(
+          state.zoomSeconds * 1.35,
+          MIN_ZOOM_SECONDS,
+          Math.max(getAudioDuration() || 18, MIN_ZOOM_SECONDS),
+        );
+        setWindowAround(ui.audio.currentTime || 0);
+        renderAll();
+      });
+
+      ui.zoomIn.addEventListener("click", () => {
+        state.zoomSeconds = clamp(
+          state.zoomSeconds / 1.35,
+          MIN_ZOOM_SECONDS,
+          Math.max(getAudioDuration() || 18, MIN_ZOOM_SECONDS),
+        );
+        setWindowAround(ui.audio.currentTime || 0);
+        renderAll();
+      });
+
+      ui.prevWord.addEventListener("click", () => setSelectedWord(state.selectedWordIndex - 1, { seek: true }));
+      ui.nextWord.addEventListener("click", () => setSelectedWord(state.selectedWordIndex + 1, { seek: true }));
+      ui.placeWord.addEventListener("click", placeSelectedWordAtPlayhead);
+      ui.playPause.addEventListener("click", () => {
+        if (ui.audio.paused) {
+          ui.audio.play().catch(() => {});
+        } else {
+          ui.audio.pause();
+        }
+      });
+      ui.rewindStart.addEventListener("click", seekToStart);
+      ui.back2.addEventListener("click", () => seekRelative(-2));
+      ui.jumpWord.addEventListener("click", jumpToSelectedWord);
+      ui.exportMp4.addEventListener("click", exportMp4);
+      ui.openMp4.addEventListener("click", openMp4);
+      ui.selectProject.addEventListener("click", () => selectProject().catch((error) => {
+        updateStatusChip(ui.projectStatus, error.message, "warn");
+      }));
+      ui.saveOverrides.addEventListener("click", saveOverrides);
+      ui.reloadProject.addEventListener("click", () => loadProject({ bustCache: true }).catch((error) => {
+        updateStatusChip(ui.projectStatus, error.message, "warn");
+      }));
+      ui.resetWord.addEventListener("click", resetSelectedSuffix);
+      ui.resetAll.addEventListener("click", resetAllOverrides);
+      ui.waveCanvas.addEventListener("click", seekFromWaveform);
+      ui.wavePan.addEventListener("input", (event) => {
+        panWaveformWindow(Number(event.target.value || 0));
+      });
+      ui.playhead.addEventListener("pointerdown", beginPlayheadDrag);
+
+      ["timeupdate", "seeked", "loadedmetadata", "durationchange", "play", "pause"].forEach((eventName) => {
+        ui.audio.addEventListener(eventName, queueRender);
+      });
+
+      window.addEventListener("resize", queueRender);
+    }
+
+    bindEvents();
+    renderAll();
+    loadProject({ bustCache: true }).catch((error) => {
+      updateStatusChip(ui.projectStatus, error.message, "warn");
+      renderAll();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+paths:
+  input_dir: input
+  output_dir: output
+  temp_dir: temp
+  logs_dir: logs
+
+audio_extractor:
+  ffmpeg_path: ffmpeg
+  sample_rate_hz: 44100
+  channels: 1
+  audio_codec: pcm_s16le
+  normalization_filter: loudnorm=I=-16:LRA=11:TP=-1.5
+
+separator:
+  demucs_module: demucs.separate
+  model_name: htdemucs
+  two_stems: vocals
+  device: cpu
+  shifts: 0
+
+transcriber:
+  model_name: large-v3
+  device: cpu
+  language: he
+  task: transcribe
+  fp16: false
+  audio_artifact: audio_wav
+  output_json_name: transcript.json
+  output_text_name: transcript.txt
+
+subtitle_builder:
+  output_ass_name: subtitles.ass
+  manifest_name: subtitles_manifest.json
+  assets_dir_name: subtitle_assets
+  timing_overrides_name: timing_overrides.json
+  font_name: Arial Unicode MS
+  font_size: 56
+  primary_color: "&H00FFFFFF"
+  secondary_color: "&H0000FFFF"
+  outline_color: "&H00000000"
+  back_color: "&H7F000000"
+  alignment: 5
+  margin_l: 40
+  margin_r: 40
+  margin_v: 0
+  overlay_vertical_align: center
+  outline: 2
+  shadow: 0
+  filter_isolated_anchor_segments: true
+  isolated_anchor_gap_seconds: 10.0
+  isolated_anchor_duration_seconds: 2.0
+
+renderer:
+  ffmpeg_path: ffmpeg
+  audio_artifact: audio_wav
+  output_video_name: karaoke.mp4
+  video_size: 1920x1080
+  frame_rate: 24
+  background_color: black
+  video_codec: libx264
+  video_preset: ultrafast
+  video_crf: 20
+  audio_codec: aac
+  audio_bitrate: 192k
+  faststart: true
+
+aligner:
+  audio_artifact: audio_wav
+  device: cpu
+  compute_type: int8
+  output_json_name: aligned.json
+
+lyrics_source:
+  enabled: false
+  provider: shironet
+  source_url: ""
+  output_text_name: lyrics.txt
+  output_json_name: lyrics.json
+  user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36
+  timeout_seconds: 30

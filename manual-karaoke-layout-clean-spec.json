@@ -1,0 +1,29 @@
+﻿{
+  "title": "Manual Karaoke Editor Layout Sketch",
+  "outputPath": "D:\\_PROJECTS\\iCloudDrive\\iCloud~md~obsidian\\Boaz_brain\\Excalidraw\\Manual Karaoke Editor Layout Sketch.excalidraw.md",
+  "backgroundColor": "#f7f3ea",
+  "theme": "light",
+  "nodes": [
+    { "id": "title", "text": "Manual Karaoke Editor\nLayout Sketch", "kind": "start", "x": 60, "y": 40, "fontSize": 30, "width": 320, "height": 110 },
+    { "id": "note", "text": "Target: clean 3-zone editor\nLeft = setup + queue\nCenter = stage + waveform\nRight = transport + timing", "kind": "data", "x": 420, "y": 48, "fontSize": 18, "width": 430, "height": 94 },
+    { "id": "artboard", "text": "Desktop Artboard 1440 x 900", "kind": "default", "x": 60, "y": 190, "fontSize": 18, "width": 1440, "height": 900 },
+
+    { "id": "left", "text": "Left Rail\n320 px", "kind": "default", "x": 95, "y": 235, "fontSize": 18, "width": 320, "height": 810 },
+    { "id": "leftHeader", "text": "Header\nManual Karaoke\nstatus chips", "kind": "data", "x": 120, "y": 270, "fontSize": 16, "width": 270, "height": 115 },
+    { "id": "leftImport", "text": "Project Setup\naudio file\nlyrics text / file\nCreate Project", "kind": "data", "x": 120, "y": 415, "fontSize": 16, "width": 270, "height": 220 },
+    { "id": "leftQueue", "text": "Queue\nscrolling line list\nselected row state", "kind": "default", "x": 120, "y": 665, "fontSize": 16, "width": 270, "height": 330 },
+
+    { "id": "center", "text": "Primary Workspace\n800 px", "kind": "default", "x": 445, "y": 235, "fontSize": 18, "width": 800, "height": 810 },
+    { "id": "stage", "text": "Selected Line Stage\nlarge RTL lyric preview\nsmall meta chips below", "kind": "default", "x": 470, "y": 270, "fontSize": 18, "width": 750, "height": 250 },
+    { "id": "wave", "text": "Waveform\nfull-width song seek surface\nselected window + playhead", "kind": "default", "x": 470, "y": 555, "fontSize": 18, "width": 750, "height": 200 },
+    { "id": "timeline", "text": "Sentence Timeline\nlocal zoom strip\ndrag handles", "kind": "default", "x": 470, "y": 790, "fontSize": 18, "width": 750, "height": 205 },
+
+    { "id": "right", "text": "Right Inspector\n270 px", "kind": "default", "x": 1270, "y": 235, "fontSize": 18, "width": 195, "height": 810 },
+    { "id": "transport", "text": "Transport\naudio player\nplay line\nseek buttons", "kind": "default", "x": 1293, "y": 270, "fontSize": 16, "width": 150, "height": 180 },
+    { "id": "timing", "text": "Timing Controls\nstart / end\nnudge buttons\nglobal offset", "kind": "default", "x": 1293, "y": 485, "fontSize": 16, "width": 150, "height": 270 },
+    { "id": "actions", "text": "Actions\nsave\nreload\nreset", "kind": "end", "x": 1293, "y": 790, "fontSize": 16, "width": 150, "height": 145 },
+
+    { "id": "footer", "text": "Use this sketch as the HTML guide.\nNo extra wrapper frames.\nNo floating callouts over the layout.", "kind": "decision", "x": 905, "y": 62, "fontSize": 17, "width": 420, "height": 84 }
+  ],
+  "edges": []
+}

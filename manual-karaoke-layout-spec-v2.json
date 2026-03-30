@@ -1,0 +1,25 @@
+﻿{
+  "title": "Manual Karaoke Editor Layout Sketch",
+  "outputPath": "D:\\_PROJECTS\\iCloudDrive\\iCloud~md~obsidian\\Boaz_brain\\Excalidraw\\Manual Karaoke Editor Layout Sketch.excalidraw.md",
+  "backgroundColor": "#f3efe7",
+  "theme": "light",
+  "nodes": [
+    { "id": "board", "text": "Editor Shell 1440 x 900", "kind": "start", "x": 40, "y": 30, "fontSize": 26, "width": 260, "height": 86 },
+    { "id": "rules", "text": "Final target\n- 3 zones only\n- Left rail = setup + queue\n- Center = preview + waveform\n- Right rail = transport + timing", "kind": "data", "x": 330, "y": 28, "fontSize": 18, "width": 420, "height": 110 },
+    { "id": "shell", "text": "Application Frame", "kind": "default", "x": 40, "y": 160, "fontSize": 18, "width": 1440, "height": 900 },
+    { "id": "leftRail", "text": "Left Rail\n320 px\nProject setup\nLyrics import\nLine queue", "kind": "default", "x": 72, "y": 206, "fontSize": 18, "width": 320, "height": 808 },
+    { "id": "leftHead", "text": "Header\nManual Karaoke\nsmall status chip", "kind": "data", "x": 96, "y": 236, "fontSize": 16, "width": 272, "height": 110 },
+    { "id": "leftImport", "text": "Import block\nAudio file\nLyrics text / file\nCreate project", "kind": "data", "x": 96, "y": 372, "fontSize": 16, "width": 272, "height": 200 },
+    { "id": "leftQueue", "text": "Queue\nSelected line list\nTall scroll region", "kind": "default", "x": 96, "y": 600, "fontSize": 16, "width": 272, "height": 374 },
+    { "id": "center", "text": "Primary Workspace\n760 px", "kind": "default", "x": 428, "y": 206, "fontSize": 18, "width": 760, "height": 808 },
+    { "id": "stageTop", "text": "Stage\nSelected lyric line\nLarge RTL display\nMinimal meta row", "kind": "default", "x": 456, "y": 236, "fontSize": 18, "width": 704, "height": 270 },
+    { "id": "wave", "text": "Waveform\nFull-width seek surface\nCurrent playhead + selected window", "kind": "default", "x": 456, "y": 536, "fontSize": 18, "width": 704, "height": 220 },
+    { "id": "timeline", "text": "Sentence Timeline\nSingle local timing strip\nDrag handles", "kind": "default", "x": 456, "y": 784, "fontSize": 18, "width": 704, "height": 190 },
+    { "id": "rightRail", "text": "Right Inspector\n300 px", "kind": "default", "x": 1216, "y": 206, "fontSize": 18, "width": 232, "height": 808 },
+    { "id": "transport", "text": "Transport\nAudio controls\nCurrent time\nPlay selected", "kind": "default", "x": 1240, "y": 236, "fontSize": 16, "width": 184, "height": 180 },
+    { "id": "timing", "text": "Timing Controls\nStart / end\nNudge buttons\nGlobal offset\nReset selected", "kind": "default", "x": 1240, "y": 444, "fontSize": 16, "width": 184, "height": 250 },
+    { "id": "actions", "text": "Actions\nSave overrides\nReload\nFuture export", "kind": "end", "x": 1240, "y": 724, "fontSize": 16, "width": 184, "height": 146 },
+    { "id": "notes", "text": "Notes\nKeep panel count low.\nNo separate stats cards.\nNo standalone project box in main area.\nTransport stays out of the center stage.", "kind": "decision", "x": 804, "y": 38, "fontSize": 17, "width": 500, "height": 120 }
+  ],
+  "edges": []
+}
