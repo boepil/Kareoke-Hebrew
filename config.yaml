@@ -19,12 +19,22 @@ separator:
   shifts: 0
 
 transcriber:
+  provider: gemma
+  fallback_to_whisper: true
   model_name: large-v3
+  gemma_model_id: google/gemma-3n-E4B-it
+  gemma_device_map: auto
+  gemma_torch_dtype: auto
+  gemma_chunk_seconds: 24
+  gemma_chunk_overlap_seconds: 1.0
+  gemma_sample_rate_hz: 16000
+  gemma_max_new_tokens: 196
+  gemma_instruction_text: "Transcribe this Hebrew singing audio verbatim in Hebrew script only. Do not translate. Return only the sung words."
   device: cpu
   language: he
   task: transcribe
   fp16: false
-  audio_artifact: audio_wav
+  audio_artifact: vocals_wav
   output_json_name: transcript.json
   output_text_name: transcript.txt
 
@@ -33,7 +43,7 @@ subtitle_builder:
   manifest_name: subtitles_manifest.json
   assets_dir_name: subtitle_assets
   timing_overrides_name: timing_overrides.json
-  font_name: Arial Unicode MS
+  font_name: Microsoft Sans Serif
   font_size: 56
   primary_color: "&H00FFFFFF"
   secondary_color: "&H0000FFFF"
@@ -49,6 +59,7 @@ subtitle_builder:
   filter_isolated_anchor_segments: true
   isolated_anchor_gap_seconds: 10.0
   isolated_anchor_duration_seconds: 2.0
+  sentence_preroll_seconds: 1.0
 
 renderer:
   ffmpeg_path: ffmpeg
@@ -65,10 +76,23 @@ renderer:
   faststart: true
 
 aligner:
-  audio_artifact: audio_wav
+  audio_artifact: vocals_wav
   device: cpu
   compute_type: int8
   output_json_name: aligned.json
+
+autosync:
+  enabled: true
+  provider: gemma
+  audio_model_id: google/gemma-3n-E4B-it
+  chunk_seconds: 24
+  chunk_overlap_seconds: 1.0
+  language: he
+  fallback_to_whisper: true
+  correction_enabled: true
+  correction_endpoint_url: http://127.0.0.1:1234/v1/chat/completions
+  correction_model_id: qwen3-4b
+  correction_timeout_seconds: 90
 
 lyrics_source:
   enabled: false

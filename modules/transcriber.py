@@ -1,7 +1,8 @@
-"""Transcribe audio locally with Whisper.
+"""Transcribe audio locally with a configurable speech-to-text provider.
 
-This stage loads a local Whisper model, produces a timestamped segment list,
-and writes both JSON and plain-text transcript outputs into temp/.
+This stage defaults to Whisper. Optionally, it can call a Gemma-based
+transcriber and fall back to Whisper if the optional autosync stack is missing
+or the Gemma run fails.
 """
 
 from __future__ import annotations
@@ -55,13 +56,38 @@ def _load_whisper_module():
     return whisper
 
 
+def _load_gemma_transcriber():
+    try:
+        from modules.gemma_transcriber import transcribe_audio_with_gemma
+    except ImportError as exc:  # pragma: no cover - depends on optional environment
+        raise ModuleNotFoundError(
+            "Gemma transcription requires the optional autosync dependencies. "
+            "Run scripts/setup_autosync.ps1 to install them."
+        ) from exc
+    return transcribe_audio_with_gemma
+
+
 def build_transcriber_settings(config: Mapping[str, Any]) -> dict[str, Any]:
     """Return the normalized transcriber settings from config."""
     settings = _transcriber_section(config)
+    autosync = config.get("autosync")
+    if not isinstance(autosync, Mapping):
+        autosync = {}
+
+    provider = str(settings.get("provider") or "").strip().lower()
+    if not provider:
+        autosync_provider = str(autosync.get("provider", "")).strip().lower()
+        autosync_enabled = bool(autosync.get("enabled", False))
+        provider = autosync_provider if autosync_enabled and autosync_provider else "whisper"
+
     return {
+        "provider": provider or "whisper",
+        "fallback_to_whisper": bool(
+            settings.get("fallback_to_whisper", autosync.get("fallback_to_whisper", True))
+        ),
         "model_name": str(settings["model_name"]),
         "device": str(settings.get("device", "cpu")),
-        "language": str(settings.get("language", "he")),
+        "language": str(settings.get("language", autosync.get("language", "he"))),
         "task": str(settings.get("task", "transcribe")),
         "fp16": bool(settings.get("fp16", False)),
         "output_json_name": str(settings.get("output_json_name", "transcript.json")),
@@ -81,28 +107,19 @@ def _write_transcript_files(
     text_path.write_text(str(transcript.get("text", "")), encoding="utf-8")
 
 
-def transcribe_audio(
-    input_file: str | Path,
-    config: str | Path | Mapping[str, Any],
+def _transcribe_with_whisper(
+    input_path: Path,
+    settings: Mapping[str, Any],
+    json_path: Path,
+    text_path: Path,
 ) -> dict[str, Any]:
-    """Transcribe audio with Whisper and save transcript artifacts under temp/."""
-    config_data = load_config(config)
-    input_path = Path(input_file)
-
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file does not exist: {input_path}")
-
-    paths = _paths_section(config_data)
-    settings = build_transcriber_settings(config_data)
-    temp_dir = Path(paths["temp_dir"])
-    temp_dir.mkdir(parents=True, exist_ok=True)
-
-    json_path = temp_dir / settings["output_json_name"]
-    text_path = temp_dir / settings["output_text_name"]
-
     whisper = _load_whisper_module()
     start = time.perf_counter()
-    LOGGER.info("transcriber:start input=%s model=%s", input_path, settings["model_name"])
+    LOGGER.info(
+        "transcriber:start provider=whisper input=%s model=%s",
+        input_path,
+        settings["model_name"],
+    )
 
     model = whisper.load_model(
         settings["model_name"],
@@ -118,6 +135,7 @@ def transcribe_audio(
 
     transcript = {
         "source_file": str(input_path),
+        "provider": "whisper",
         "model_name": settings["model_name"],
         "language": result.get("language", settings["language"]),
         "text": result.get("text", ""),
@@ -127,7 +145,7 @@ def transcribe_audio(
 
     duration = time.perf_counter() - start
     LOGGER.info(
-        "transcriber:end json=%s text=%s duration_seconds=%.2f",
+        "transcriber:end provider=whisper json=%s text=%s duration_seconds=%.2f",
         json_path,
         text_path,
         duration,
@@ -137,11 +155,48 @@ def transcribe_audio(
     return transcript
 
 
+def transcribe_audio(
+    input_file: str | Path,
+    config: str | Path | Mapping[str, Any],
+) -> dict[str, Any]:
+    """Transcribe audio and save transcript artifacts under temp/."""
+    config_data = load_config(config)
+    input_path = Path(input_file)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file does not exist: {input_path}")
+
+    paths = _paths_section(config_data)
+    settings = build_transcriber_settings(config_data)
+    temp_dir = Path(paths["temp_dir"])
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    json_path = temp_dir / settings["output_json_name"]
+    text_path = temp_dir / settings["output_text_name"]
+
+    provider = str(settings.get("provider", "whisper")).strip().lower()
+    if provider == "gemma":
+        transcribe_audio_with_gemma = _load_gemma_transcriber()
+        try:
+            return transcribe_audio_with_gemma(input_path, config_data)
+        except Exception as exc:
+            if not bool(settings.get("fallback_to_whisper", True)):
+                raise
+            LOGGER.warning(
+                "transcriber:gemma_fallback input=%s reason=%s: %s",
+                input_path,
+                type(exc).__name__,
+                exc,
+            )
+
+    return _transcribe_with_whisper(input_path, settings, json_path, text_path)
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Transcribe audio with a local Whisper model.",
+        description="Transcribe audio with a local Whisper model or Gemma provider.",
     )
-    parser.add_argument("input_file", help="Input audio file, e.g. temp/no_vocals.wav")
+    parser.add_argument("input_file", help="Input audio file, e.g. temp/vocals.wav")
     parser.add_argument(
         "--config",
         default="config.yaml",

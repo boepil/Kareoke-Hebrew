@@ -81,6 +81,8 @@ def test_build_ass_dialogue_lines_uses_clip_overlays_for_word_timings() -> None:
     assert lines[0].startswith("Dialogue: 0,0:00:00.00,0:00:01.50,Default")
     assert "שלום עולם" in lines[0]
     assert len(events) == 2
+    assert float(events[0]["end"]) == 1.5
+    assert float(events[1]["end"]) == 1.5
     assert entries[0]["start"] == 0.0
 
 
@@ -180,7 +182,7 @@ def test_build_subtitles_prefers_imported_lyrics_text(tmp_path: Path) -> None:
     assert "פזמון" in content
     assert "ignored" not in content
     manifest = json.loads((temp_dir / "subtitles_manifest.json").read_text(encoding="utf-8"))
-    assert len(manifest["events"]) == 3
+    assert len(manifest["events"]) == 4
     assert manifest["lines"][0]["id"] == "line_000"
 
 
@@ -215,7 +217,8 @@ def test_build_subtitles_anchors_lyrics_to_aligned_segments(tmp_path: Path) -> N
     assert "0:00:40.00" in lines[2]
     assert "0:00:41.50" in lines[2]
     manifest = json.loads((temp_dir / "subtitles_manifest.json").read_text(encoding="utf-8"))
-    assert len(manifest["events"]) == 6
+    assert len(manifest["events"]) >= 9
+    assert any(event.get("kind") == "countdown" for event in manifest["events"])
     assert len(manifest["lines"]) == 3
 
 
@@ -270,4 +273,28 @@ def test_build_subtitles_applies_timing_override_file(tmp_path: Path) -> None:
 
     assert manifest["lines"][0]["start"] == 12.5
     assert manifest["lines"][0]["end"] == 14.0
-    assert manifest["events"][0]["start"] >= 12.5
+    assert any(event.get("kind") == "lyrics_preroll" and abs(float(event["start"]) - 11.5) < 0.001 for event in manifest["events"])
+
+
+def test_build_subtitles_adds_countdown_events_for_intro_and_long_gap(tmp_path: Path) -> None:
+    (tmp_path / "lyrics.txt").write_text("line one\nline two", encoding="utf-8")
+    transcript_path = tmp_path / "aligned.json"
+    transcript_path.write_text(
+        json.dumps(
+            {
+                "segments": [
+                    {"start": 5.0, "end": 6.0, "text": "first"},
+                    {"start": 12.0, "end": 13.0, "text": "second"},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    build_subtitles(transcript_path, _config(tmp_dir=str(tmp_path)))
+    manifest = json.loads((tmp_path / "subtitles_manifest.json").read_text(encoding="utf-8"))
+
+    countdown_events = [event for event in manifest["events"] if event.get("kind") == "countdown"]
+    assert [event.get("text") for event in countdown_events[:3]] == ["3", "2", "1"]
+    assert any(event.get("text") == "3" and abs(float(event["start"]) - 9.0) < 0.001 for event in countdown_events)

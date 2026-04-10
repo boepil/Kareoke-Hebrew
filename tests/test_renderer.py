@@ -128,3 +128,51 @@ def test_render_video_prefers_manifest_images_when_present(tmp_path: Path) -> No
 
     assert output_video.exists()
     assert (tmp_path / "subtitle_overlay.ffscript").exists()
+
+
+def test_render_video_uses_event_specific_fade_settings(tmp_path: Path) -> None:
+    audio_path = tmp_path / "audio.wav"
+    subtitles_path = tmp_path / "subtitles.ass"
+    manifest_path = tmp_path / "subtitles_manifest.json"
+    image_path = tmp_path / "subtitle_assets" / "line.png"
+    output_dir = tmp_path / "output"
+
+    _write_test_wav(audio_path)
+    subtitles_path.write_text("[Events]\n", encoding="utf-8")
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+
+    import PIL.Image
+
+    PIL.Image.new("RGBA", (180, 40), (255, 255, 255, 255)).save(image_path)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "events": [
+                    {"start": 0.0, "end": 0.4, "image": str(image_path), "fade_in_seconds": 0.0, "kind": "lyrics"},
+                    {
+                        "start": 0.4,
+                        "end": 0.8,
+                        "image": str(image_path),
+                        "fade_in_seconds": 0.25,
+                        "fade_out_seconds": 0.15,
+                        "kind": "intro",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    config = {
+        "paths": {"output_dir": str(output_dir)},
+        "renderer": _config()["renderer"],
+        "subtitle_builder": _config()["subtitle_builder"],
+    }
+
+    output_video = render_video(audio_path, subtitles_path, config)
+
+    assert output_video.exists()
+    script_text = (tmp_path / "subtitle_overlay.ffscript").read_text(encoding="utf-8")
+    assert script_text.count("fade=t=in") == 1
+    assert script_text.count("fade=t=out") == 1

@@ -89,7 +89,7 @@ def build_subtitle_settings(config: Mapping[str, Any]) -> dict[str, Any]:
         lyrics_text_name = str(lyrics_settings.get("output_text_name", lyrics_text_name))
     return {
         "output_ass_name": str(settings.get("output_ass_name", "subtitles.ass")),
-        "font_name": str(settings.get("font_name", "Arial Unicode MS")),
+        "font_name": str(settings.get("font_name", "Microsoft Sans Serif")),
         "font_path": str(settings.get("font_path", "")),
         "font_size": int(settings.get("font_size", 28)),
         "primary_color": str(settings.get("primary_color", "&H00FFFFFF")),
@@ -109,6 +109,7 @@ def build_subtitle_settings(config: Mapping[str, Any]) -> dict[str, Any]:
         "filter_isolated_anchor_segments": bool(settings.get("filter_isolated_anchor_segments", True)),
         "isolated_anchor_gap_seconds": float(settings.get("isolated_anchor_gap_seconds", 10.0)),
         "isolated_anchor_duration_seconds": float(settings.get("isolated_anchor_duration_seconds", 2.0)),
+        "sentence_preroll_seconds": float(settings.get("sentence_preroll_seconds", 1.0)),
     }
 
 
@@ -152,6 +153,7 @@ def _find_font_path(font_name: str, font_path: str) -> str | None:
         font_name,
         f"{font_name}.ttf",
         f"{font_name}.ttc",
+        "micross.ttf",
         "arialuni.ttf",
         "arial.ttf",
         "David.ttf",
@@ -315,12 +317,99 @@ def _render_line_image(
     image.save(output_path)
 
 
+def _scale_alpha(fill: tuple[int, int, int, int], multiplier: float) -> tuple[int, int, int, int]:
+    return (fill[0], fill[1], fill[2], max(0, min(255, int(fill[3] * multiplier))))
+
+
+def _render_preview_stack_image(
+    current_text: str,
+    active_word_index: int | None,
+    upcoming_text: str,
+    output_path: Path,
+    settings: Mapping[str, Any],
+) -> None:
+    current_normalized = _normalize_display_text(current_text)
+    if not current_normalized:
+        raise ValueError("Cannot render an empty subtitle line")
+
+    font = _load_measurement_font(
+        str(settings["font_name"]),
+        str(settings.get("font_path", "")),
+        int(settings["font_size"]),
+    )
+    outline = int(settings["outline"])
+    margin = max(outline + 8, 12)
+    line_gap = max(int(int(settings["font_size"]) * 0.18), 8)
+    space_width = _measure_text_width(" ", settings)
+
+    def layout_line(raw_text: str) -> tuple[list[str], list[str], list[float], float, int, tuple[int, int, int, int]]:
+        normalized = _normalize_display_text(raw_text)
+        if not normalized:
+            return [], [], [], 0.0, 0, (0, 0, 0, 0)
+        words = _split_lyric_words(normalized)
+        display_words = [word[::-1] for word in words]
+        word_widths = [_measure_text_width(word, settings) for word in display_words]
+        total_width = sum(word_widths) + space_width * max(len(words) - 1, 0)
+        bbox = font.getbbox(" ".join(display_words))
+        text_height = bbox[3] - bbox[1]
+        return words, display_words, word_widths, total_width, text_height, bbox
+
+    _, current_display_words, current_word_widths, current_total_width, current_height, current_bbox = layout_line(current_normalized)
+    _, upcoming_display_words, upcoming_word_widths, upcoming_total_width, upcoming_height, upcoming_bbox = layout_line(upcoming_text)
+
+    image_width = int(max(current_total_width, upcoming_total_width, 1) + margin * 2)
+    image_height = int(current_height + (line_gap if upcoming_display_words else 0) + upcoming_height + margin * 2)
+    image = Image.new("RGBA", (image_width, image_height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+
+    current_fill = _scale_alpha(_color_to_rgba(str(settings["primary_color"])), 0.42)
+    current_active_fill = _color_to_rgba(str(settings["secondary_color"]))
+    upcoming_fill = _scale_alpha(_color_to_rgba(str(settings["primary_color"])), 0.2)
+    stroke_fill = _stroke_fill(settings)
+
+    def draw_line(
+        display_words: list[str],
+        word_widths: list[float],
+        bbox: tuple[int, int, int, int],
+        y_offset: float,
+        active_index: int | None,
+        base_fill: tuple[int, int, int, int],
+    ) -> None:
+        if not display_words:
+            return
+        content_width = sum(word_widths) + space_width * max(len(display_words) - 1, 0)
+        x = image_width - margin - (image_width - margin * 2 - content_width) / 2
+        y = y_offset - bbox[1]
+        for index, word in enumerate(display_words):
+            word_width = word_widths[index]
+            x -= word_width
+            fill = current_active_fill if active_index is not None and index == active_index else base_fill
+            draw.text(
+                (x, y),
+                word,
+                fill=fill,
+                font=font,
+                stroke_width=outline,
+                stroke_fill=stroke_fill,
+            )
+            if index < len(display_words) - 1:
+                x -= space_width
+
+    draw_line(current_display_words, current_word_widths, current_bbox, margin, active_word_index, current_fill)
+    if upcoming_display_words:
+        draw_line(upcoming_display_words, upcoming_word_widths, upcoming_bbox, margin + current_height + line_gap, None, upcoming_fill)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path)
+
+
 def _build_image_events(
     line_id: str,
     display_text: str,
     start: float,
     end: float,
     word_windows: list[tuple[float, float, str]],
+    next_display_text: str,
     assets_dir: Path,
     settings: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
@@ -329,17 +418,115 @@ def _build_image_events(
         return []
 
     events: list[dict[str, Any]] = []
+    preroll_seconds = max(float(settings.get("sentence_preroll_seconds", 1.0)), 0.0)
     if not word_windows:
         image_path = assets_dir / f"{line_id}_base.png"
-        _render_line_image(normalized_text, 0, image_path, settings)
-        events.append({"start": start, "end": end, "image": str(image_path)})
+        _render_preview_stack_image(normalized_text, None, next_display_text, image_path, settings)
+        events.append({"start": start, "end": end, "image": str(image_path), "kind": "lyrics", "fade_in_seconds": 0.0})
         return events
+
+    first_word_start = float(word_windows[0][0])
+    intro_start = max(first_word_start - preroll_seconds, 0.0)
+    if intro_start < first_word_start:
+        image_path = assets_dir / f"{line_id}_00.png"
+        _render_preview_stack_image(normalized_text, None, next_display_text, image_path, settings)
+        events.append(
+            {
+                "start": intro_start,
+                "end": end,
+                "image": str(image_path),
+                "kind": "lyrics_preroll",
+                "fade_in_seconds": min(preroll_seconds, 0.2),
+            }
+        )
 
     for index, (word_start, word_end, _) in enumerate(word_windows, start=1):
         image_path = assets_dir / f"{line_id}_{index:02d}.png"
-        _render_line_image(normalized_text, index, image_path, settings)
-        events.append({"start": word_start, "end": word_end, "image": str(image_path)})
+        _render_preview_stack_image(normalized_text, index - 1, next_display_text, image_path, settings)
+        events.append(
+            {
+                "start": word_start,
+                "end": end,
+                "image": str(image_path),
+                "kind": "lyrics",
+                "fade_in_seconds": 0.0,
+            }
+        )
     return events
+
+
+def _build_countdown_events(
+    anchor_time: float,
+    gap_start: float,
+    event_prefix: str,
+    next_display_text: str,
+    assets_dir: Path,
+    settings: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    countdown_events: list[dict[str, Any]] = []
+    countdown_start = max(anchor_time - 3.0, gap_start, 0.0)
+    countdown_labels = ["3", "2", "1"]
+    for index, label in enumerate(countdown_labels):
+        start = max(anchor_time - 3.0 + index, countdown_start)
+        end = min(anchor_time - 2.0 + index, anchor_time)
+        if end - start <= 0.05:
+            continue
+        image_path = assets_dir / f"{event_prefix}_countdown_{label}.png"
+        _render_preview_stack_image(label, None, next_display_text, image_path, settings)
+        countdown_events.append(
+            {
+                "start": start,
+                "end": end,
+                "image": str(image_path),
+                "kind": "countdown",
+                "text": label,
+                "fade_in_seconds": 0.0,
+            }
+        )
+    return countdown_events
+
+
+def _append_countdown_events(
+    image_events: list[dict[str, Any]],
+    line_entries: list[dict[str, Any]],
+    assets_dir: Path,
+    settings: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    if not line_entries:
+        return image_events
+
+    ordered_lines = sorted(line_entries, key=lambda entry: float(entry.get("start", 0.0)))
+    enriched_events = list(image_events)
+    first_start = float(ordered_lines[0].get("start", 0.0))
+    if first_start > 0.05:
+        enriched_events.extend(
+            _build_countdown_events(
+                first_start,
+                0.0,
+                "intro",
+                str(ordered_lines[0].get("text", "")),
+                assets_dir,
+                settings,
+            )
+        )
+
+    for index in range(1, len(ordered_lines)):
+        previous_end = float(ordered_lines[index - 1].get("end", 0.0))
+        next_start = float(ordered_lines[index].get("start", 0.0))
+        if next_start - previous_end > 4.0:
+            enriched_events.extend(
+                _build_countdown_events(
+                    next_start,
+                    previous_end,
+                    f"gap_{index:03d}",
+                    str(ordered_lines[index].get("text", "")),
+                    assets_dir,
+                    settings,
+                )
+            )
+
+    enriched_events.sort(key=lambda event: (float(event.get("start", 0.0)), float(event.get("end", 0.0))))
+    return enriched_events
 
 
 def _read_lyrics_lines(temp_dir: Path, lyrics_text_name: str) -> list[str]:
@@ -573,6 +760,7 @@ def _build_lyrics_dialogue_lines(
             line_id = f"line_{index:03d}"
             word_windows = _uniform_word_windows(lyric_line, start, end)
             start, end, word_windows = _apply_timing_override(line_id, start, end, word_windows, overrides)
+            next_display_text = lyrics_lines[index + 1] if index + 1 < len(lyrics_lines) else ""
             dialogue_lines.append(_ass_placeholder_line(start, end, lyric_line))
             image_events.extend(
                 _build_image_events(
@@ -581,6 +769,7 @@ def _build_lyrics_dialogue_lines(
                     start,
                     end,
                     word_windows,
+                    next_display_text,
                     assets_dir,
                     settings,
                 )
@@ -605,6 +794,7 @@ def _build_lyrics_dialogue_lines(
             line_end = segment_start + (index + 1) * slot_duration
             line_id = f"line_{line_counter:03d}"
             word_windows = _uniform_word_windows(lyric_line, line_start, line_end)
+            next_display_text = lyrics_lines[line_counter + 1] if line_counter + 1 < len(lyrics_lines) else ""
             line_start, line_end, word_windows = _apply_timing_override(
                 line_id,
                 line_start,
@@ -620,6 +810,7 @@ def _build_lyrics_dialogue_lines(
                     line_start,
                     line_end,
                     word_windows,
+                    next_display_text,
                     assets_dir,
                     settings,
                 )
@@ -657,7 +848,15 @@ def build_ass_dialogue_lines(
     line_entries: list[dict[str, Any]] = []
     assets_dir = Path(settings["assets_dir"])
     overrides = settings.get("timing_overrides", {})
+    display_texts: list[str] = []
     for segment in segments:
+        word_windows = _segment_word_windows(segment)
+        if word_windows:
+            display_texts.append(" ".join(word for _, _, word in word_windows))
+        else:
+            display_texts.append(str(segment.get("text", "")))
+
+    for index, segment in enumerate(segments):
         segment_start = float(segment["start"])
         segment_end = float(segment["end"])
         word_windows = _segment_word_windows(segment)
@@ -666,6 +865,7 @@ def build_ass_dialogue_lines(
             display_text = " ".join(word for _, _, word in word_windows)
         else:
             display_text = str(segment.get("text", ""))
+        next_display_text = display_texts[index + 1] if index + 1 < len(display_texts) else ""
 
         line_id = f"segment_{len(line_entries):03d}"
         segment_start, segment_end, word_windows = _apply_timing_override(
@@ -683,12 +883,13 @@ def build_ass_dialogue_lines(
                 segment_start,
                 segment_end,
                 word_windows,
+                next_display_text,
                 assets_dir,
                 settings,
             )
         )
         line_entries.append({"id": line_id, "text": display_text, "start": segment_start, "end": segment_end})
-    return dialogue_lines, image_events, line_entries
+    return dialogue_lines, _append_countdown_events(image_events, line_entries, assets_dir, settings), line_entries
 
 
 def build_lyrics_ass_dialogue_lines(
@@ -697,7 +898,8 @@ def build_lyrics_ass_dialogue_lines(
     settings: Mapping[str, Any],
 ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
     """Create ASS dialogue lines from imported lyrics text."""
-    return _build_lyrics_dialogue_lines(lyrics_lines, segments, settings)
+    dialogue_lines, image_events, line_entries = _build_lyrics_dialogue_lines(lyrics_lines, segments, settings)
+    return dialogue_lines, _append_countdown_events(image_events, line_entries, Path(settings["assets_dir"]), settings), line_entries
 
 
 def build_subtitles(

@@ -12,6 +12,8 @@ import yaml
 
 from modules.aligner import align_transcript
 from modules.audio_extractor import extract_and_normalize_audio
+from modules.editor_project import export_editor_project
+from modules.lyrics_corrector import correct_transcript_with_lm_studio
 from modules.lyrics_source import import_lyrics
 from modules.renderer import render_video
 from modules.separator import separate_vocals
@@ -233,6 +235,15 @@ def process(input_file: str | Path, config_path: str | Path = "config.yaml") -> 
         _save_state(state_path, state)
 
     try:
+        autosync_settings = config.get("autosync")
+        if not isinstance(autosync_settings, Mapping):
+            autosync_settings = {}
+        transcriber_settings = config.get("transcriber")
+        transcriber_provider = ""
+        if isinstance(transcriber_settings, Mapping):
+            transcriber_provider = str(transcriber_settings.get("provider", "")).strip().lower()
+        autosync_enabled = bool(autosync_settings.get("enabled", False)) or transcriber_provider == "gemma"
+
         if not _stage_completed(state, STAGE_AUDIO) or not _ensure_artifacts_exist(state, ["audio_wav"]):
             state["current_stage"] = STAGE_AUDIO
             persist()
@@ -282,8 +293,22 @@ def process(input_file: str | Path, config_path: str | Path = "config.yaml") -> 
         if not _stage_completed(state, STAGE_TRANSCRIBER) or not _ensure_artifacts_exist(state, ["transcript_json", "transcript_text"]):
             state["current_stage"] = STAGE_TRANSCRIBER
             persist()
-            transcription_audio = _resolve_audio_artifact(config, state, "transcriber", "no_vocals_wav")
+            transcription_audio = _resolve_audio_artifact(config, state, "transcriber", "vocals_wav")
             transcript = transcribe_audio(transcription_audio, config)
+            if autosync_enabled:
+                lyrics_text = ""
+                if _stage_completed(state, STAGE_AUDIO):
+                    lyrics_artifacts = state.get("artifacts", {})
+                    lyrics_path_raw = lyrics_artifacts.get("lyrics_text") if isinstance(lyrics_artifacts, Mapping) else ""
+                    if lyrics_path_raw:
+                        lyrics_path = Path(str(lyrics_path_raw))
+                        if lyrics_path.exists():
+                            try:
+                                lyrics_text = lyrics_path.read_text(encoding="utf-8").strip()
+                            except Exception:
+                                lyrics_text = ""
+                if lyrics_text:
+                    transcript = correct_transcript_with_lm_studio(transcript, lyrics_text, config)
             _mark_stage_complete(
                 state,
                 STAGE_TRANSCRIBER,
@@ -294,11 +319,12 @@ def process(input_file: str | Path, config_path: str | Path = "config.yaml") -> 
             )
             persist()
 
+        aligned_payload: dict[str, Any]
         if not _stage_completed(state, STAGE_ALIGNER) or not _ensure_artifacts_exist(state, ["aligned_json"]):
             state["current_stage"] = STAGE_ALIGNER
             persist()
-            aligner_audio = _resolve_audio_artifact(config, state, "aligner", "no_vocals_wav")
-            aligned = align_transcript(
+            aligner_audio = _resolve_audio_artifact(config, state, "aligner", "vocals_wav")
+            aligned_payload = align_transcript(
                 aligner_audio,
                 state["artifacts"]["transcript_json"],
                 config,
@@ -306,8 +332,52 @@ def process(input_file: str | Path, config_path: str | Path = "config.yaml") -> 
             _mark_stage_complete(
                 state,
                 STAGE_ALIGNER,
-                {"aligned_json": str(aligned["json_path"])},
+                {"aligned_json": str(aligned_payload["json_path"])},
             )
+            persist()
+        else:
+            aligned_path = Path(str(state["artifacts"]["aligned_json"]))
+            aligned_payload = _load_state(aligned_path)
+
+        if autosync_enabled:
+            lyrics_text = ""
+            lyrics_artifacts = state.get("artifacts", {})
+            if isinstance(lyrics_artifacts, Mapping):
+                lyrics_path_raw = lyrics_artifacts.get("lyrics_text")
+                if lyrics_path_raw:
+                    lyrics_path = Path(str(lyrics_path_raw))
+                    if lyrics_path.exists():
+                        try:
+                            lyrics_text = lyrics_path.read_text(encoding="utf-8").strip()
+                        except Exception:
+                            lyrics_text = ""
+            if not lyrics_text and state["artifacts"].get("transcript_text"):
+                transcript_text_path = Path(str(state["artifacts"]["transcript_text"]))
+                if transcript_text_path.exists():
+                    try:
+                        lyrics_text = transcript_text_path.read_text(encoding="utf-8").strip()
+                    except Exception:
+                        lyrics_text = ""
+            editor_project = export_editor_project(
+                config,
+                project_name=input_path.stem,
+                source_name=input_path.name,
+                original_audio_name=input_path.name,
+                lyrics_text=lyrics_text,
+                audio_artifacts={
+                    "audio_source": input_path,
+                    "audio_wav": state["artifacts"].get("audio_wav", ""),
+                    "vocals_wav": state["artifacts"].get("vocals_wav", ""),
+                    "no_vocals_wav": state["artifacts"].get("no_vocals_wav", ""),
+                    "transcript_json": state["artifacts"].get("transcript_json", ""),
+                    "transcript_text": state["artifacts"].get("transcript_text", ""),
+                    "aligned_json": state["artifacts"].get("aligned_json", ""),
+                },
+                aligned_transcript=aligned_payload,
+                lyrics_source_url=str(state.get("lyrics_source_url", "")).strip(),
+            )
+            state["project_name"] = editor_project["project_name"]
+            state["editor_project_id"] = editor_project["project_id"]
             persist()
 
         if not _stage_completed(state, STAGE_SUBTITLES) or not _ensure_artifacts_exist(state, ["subtitles_ass"]):

@@ -4,32 +4,46 @@ from __future__ import annotations
 
 import argparse
 import audioop
+import multiprocessing as mp
+import html
 import json
+import logging
 import os
 import re
+import signal
+import shutil
+import subprocess
 import threading
 import time
+import uuid
 import wave
 import webbrowser
+from urllib.parse import urljoin, urlparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
 
+import requests
+from bs4 import BeautifulSoup
 from flask import Flask, Response, jsonify, request, send_file
 
 from main import load_config
 from modules.audio_extractor import extract_and_normalize_audio
+from modules.first_pass import run_first_pass_autosync
 from modules.renderer import render_video
 from modules.separator import separate_vocals
 from modules.subtitle_builder import (
     _ass_placeholder_line,
     _build_image_events,
+    _append_countdown_events,
     build_ass_dialogue_lines,
     build_ass_header,
     build_subtitle_settings,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -47,6 +61,14 @@ class EditorPaths:
 
 
 LEGACY_PROJECT_KEY = "__legacy__"
+PIPELINE_STAGE_DEFINITIONS = [
+    ("download_convert", "Download & convert"),
+    ("stem_separation", "Stem separation"),
+    ("gemma_transcription", "Gemma transcription"),
+    ("lm_studio_correction", "LM Studio correction"),
+    ("whisperx_alignment", "WhisperX alignment"),
+    ("editor_project", "Building editor project"),
+]
 
 
 def _resolve_config_path(config_path: str | Path) -> Path:
@@ -97,6 +119,10 @@ def _projects_root(base_paths: EditorPaths) -> Path:
 
 def _current_project_marker(base_paths: EditorPaths) -> Path:
     return base_paths.temp_dir / "current_project.txt"
+
+
+def _pipeline_status_path(base_paths: EditorPaths) -> Path:
+    return base_paths.temp_dir / "pipeline_state.json"
 
 
 def _project_storage_key(name: str, fallback: str = "project") -> str:
@@ -151,6 +177,163 @@ def _set_active_project_key(base_paths: EditorPaths, project_key: str) -> None:
     marker = _current_project_marker(base_paths)
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(project_key, encoding="utf-8")
+
+
+def _default_pipeline_job() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "job_id": "",
+        "status": "idle",
+        "project_id": "",
+        "project_name": "",
+        "current_stage_key": "",
+        "current_stage_label": "",
+        "stage_started_at": None,
+        "stage_elapsed_seconds": 0.0,
+        "started_at": None,
+        "updated_at": None,
+        "error": None,
+        "stages": [
+            {
+                "key": key,
+                "label": label,
+                "status": "pending",
+                "detail": "",
+                "started_at": None,
+                "ended_at": None,
+                "elapsed_seconds": 0.0,
+            }
+            for key, label in PIPELINE_STAGE_DEFINITIONS
+        ],
+    }
+
+
+def _read_pipeline_job(base_paths: EditorPaths) -> dict[str, Any]:
+    path = _pipeline_status_path(base_paths)
+    if not path.exists():
+        return _default_pipeline_job()
+    try:
+        loaded = _load_json_file(path)
+    except Exception:
+        return _default_pipeline_job()
+    if not isinstance(loaded, dict):
+        return _default_pipeline_job()
+    job = _default_pipeline_job()
+    job.update(loaded)
+    if not isinstance(job.get("stages"), list) or not job["stages"]:
+        job["stages"] = _default_pipeline_job()["stages"]
+    if _pipeline_job_is_stale(job):
+        LOGGER.warning("Resetting stale pipeline job state: %s", json.dumps(job, ensure_ascii=False, default=str))
+        job = _default_pipeline_job()
+        _write_pipeline_job(base_paths, job)
+    return job
+
+
+def _pipeline_job_is_stale(job: Mapping[str, Any]) -> bool:
+    if str(job.get("status", "")).strip().lower() != "running":
+        return False
+
+    stages = job.get("stages", [])
+    running_stage = None
+    for stage in stages if isinstance(stages, list) else []:
+        if not isinstance(stage, Mapping):
+            continue
+        if str(stage.get("status", "")).strip().lower() == "running":
+            running_stage = stage
+            break
+
+    if running_stage is not None:
+        return False
+
+    updated_at = str(job.get("updated_at", "")).strip()
+    started_at = str(job.get("started_at", "")).strip()
+    reference_time = updated_at or started_at
+    if not reference_time:
+        return True
+    try:
+        reference_dt = datetime.fromisoformat(reference_time.replace("Z", "+00:00"))
+    except Exception:
+        return True
+    age_seconds = max((datetime.now(timezone.utc) - reference_dt).total_seconds(), 0.0)
+    return age_seconds > 300.0
+
+
+def _write_pipeline_job(base_paths: EditorPaths, job: Mapping[str, Any]) -> None:
+    _write_json_atomic(_pipeline_status_path(base_paths), job)
+
+
+def _timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _decorate_pipeline_job(job: Mapping[str, Any]) -> dict[str, Any]:
+    decorated = dict(job)
+    stages = []
+    current_stage_key = str(decorated.get("current_stage_key", "")).strip()
+    stage_started_at = str(decorated.get("stage_started_at", "")).strip()
+    if current_stage_key and stage_started_at:
+        try:
+            started_at = datetime.fromisoformat(stage_started_at.replace("Z", "+00:00"))
+            decorated["stage_elapsed_seconds"] = max((datetime.now(timezone.utc) - started_at).total_seconds(), 0.0)
+        except Exception:
+            pass
+
+    for stage in decorated.get("stages", []):
+        if not isinstance(stage, Mapping):
+            continue
+        stage_payload = dict(stage)
+        if str(stage_payload.get("status", "")).strip() == "running" and str(stage_payload.get("started_at", "")).strip():
+            try:
+                started_at = datetime.fromisoformat(str(stage_payload["started_at"]).replace("Z", "+00:00"))
+                stage_payload["elapsed_seconds"] = max((datetime.now(timezone.utc) - started_at).total_seconds(), 0.0)
+            except Exception:
+                pass
+        stages.append(stage_payload)
+    decorated["stages"] = stages
+    return decorated
+
+
+def _update_pipeline_stage(
+    base_paths: EditorPaths,
+    job: dict[str, Any],
+    stage_key: str,
+    status: str,
+    detail: str = "",
+    *,
+    started_at: str | None = None,
+) -> dict[str, Any]:
+    updated = dict(job)
+    updated["updated_at"] = _timestamp()
+    stages: list[dict[str, Any]] = []
+    for stage in job.get("stages", []):
+        if not isinstance(stage, Mapping):
+            continue
+        stage_payload = dict(stage)
+        if stage_payload.get("key") == stage_key:
+            stage_payload["status"] = status
+            stage_payload["detail"] = detail
+            if status == "running":
+                stage_payload["started_at"] = started_at or stage_payload.get("started_at") or _timestamp()
+                stage_payload["ended_at"] = None
+                stage_payload["elapsed_seconds"] = 0.0
+            elif status in {"done", "skipped"}:
+                stage_payload["ended_at"] = _timestamp()
+                started_value = str(stage_payload.get("started_at", "")).strip()
+                if started_value:
+                    try:
+                        started_dt = datetime.fromisoformat(started_value.replace("Z", "+00:00"))
+                        stage_payload["elapsed_seconds"] = max((datetime.now(timezone.utc) - started_dt).total_seconds(), 0.0)
+                    except Exception:
+                        stage_payload["elapsed_seconds"] = 0.0
+            elif status == "error":
+                stage_payload["ended_at"] = _timestamp()
+            updated["current_stage_key"] = stage_key if status == "running" else ""
+            updated["current_stage_label"] = str(stage_payload.get("label", ""))
+            updated["stage_started_at"] = stage_payload.get("started_at") if status == "running" else None
+        stages.append(stage_payload)
+    updated["stages"] = stages
+    _write_pipeline_job(base_paths, updated)
+    return updated
 
 
 def _json_response(payload: Mapping[str, Any], status: int = 200) -> Response:
@@ -223,6 +406,19 @@ def _sanitize_filename(name: str, fallback: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
     return cleaned or fallback
+
+
+def _clean_media_display_name(raw: str) -> str:
+    cleaned = Path(raw).stem.strip() if raw else ""
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\s*\[[^\]]+\]\s*$", "", cleaned)
+    cleaned = re.sub(r"\s*\([^)]*\)\s*$", "", cleaned)
+    cleaned = re.sub(r"\s+\((?:youtube|karaoke|official(?:\s+video)?|lyrics?)\)$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*-\s*מוזיקה ישראלית$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*-\s*ישראלית$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    return cleaned
 
 
 def _clean_text_lines(raw_text: str) -> list[str]:
@@ -344,6 +540,70 @@ def _sync_manifest_text_with_lyrics(paths: EditorPaths, lyrics_text: str) -> Non
     _write_json_atomic(paths.editor_manifest_path, manifest)
 
 
+def _rebuild_manifest_from_lyrics(paths: EditorPaths, lyrics_text: str) -> None:
+    cleaned_lines = _clean_text_lines(lyrics_text)
+    duration_seconds = _read_wav_duration(paths.audio_path) if paths.audio_path.exists() else float(
+        max(sum(len(_split_words(line)) for line in cleaned_lines), 0)
+    )
+    words, lines_payload = _build_word_stream(cleaned_lines, duration_seconds)
+    manifest = {"version": 1, "lines": lines_payload, "words": words, "intro": _project_intro_metadata(paths)}
+    _write_json_atomic(paths.editor_manifest_path, manifest)
+
+    overrides = _read_overrides(paths)
+    overrides["placed_word_count"] = 0
+    overrides["words"] = {}
+    overrides["lines"] = {}
+    overrides["lyrics_text"] = "\n".join(cleaned_lines)
+    _write_json_atomic(paths.overrides_path, overrides)
+
+    state = _state_payload(paths)
+    if state:
+        state["line_count"] = len(lines_payload)
+        state["word_count"] = len(words)
+        state["lyrics_text"] = "\n".join(cleaned_lines)
+        state["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        _write_json_atomic(paths.state_path, state)
+
+
+def _ensure_manifest_consistency(paths: EditorPaths) -> None:
+    overrides = _read_overrides(paths)
+    if int(overrides.get("placed_word_count", 0) or 0) > 0:
+        return
+
+    lyrics_text = str(overrides.get("lyrics_text", "")).strip() or _project_lyrics_text(paths)
+    if not lyrics_text:
+        return
+
+    cleaned_lines = _clean_text_lines(lyrics_text)
+    flattened_words = [token for line in cleaned_lines for token in _split_words(line)]
+    if not paths.editor_manifest_path.exists() and not paths.manifest_path.exists():
+        _rebuild_manifest_from_lyrics(paths, lyrics_text)
+        return
+
+    manifest = _read_manifest(paths)
+    existing_words = manifest.get("words", [])
+    if not isinstance(existing_words, list) or len(existing_words) != len(flattened_words):
+        _rebuild_manifest_from_lyrics(paths, lyrics_text)
+        return
+
+
+def _project_intro_metadata(paths: EditorPaths) -> dict[str, Any]:
+    state = _state_payload(paths)
+    project_name = str(state.get("project_name", "")).strip()
+    source_name = str(state.get("source_name", "")).strip()
+    original_audio_name = str(state.get("original_audio_name", "")).strip()
+    source_stem = _clean_media_display_name(source_name or original_audio_name)
+    project_title = re.sub(r"\s+\(Kareoke\)$", "", project_name, flags=re.IGNORECASE).strip()
+    title = project_title or source_stem
+    subtitle = ""
+    return {
+        "intro_title": title,
+        "intro_subtitle": subtitle,
+        "intro_duration_seconds": 2.5,
+        "intro_font_multiplier": 2.0,
+    }
+
+
 def _save_project_lyrics(paths: EditorPaths, lyrics_text: str) -> None:
     cleaned_text = "\n".join(_clean_text_lines(lyrics_text))
     _lyrics_path(paths).write_text(cleaned_text, encoding="utf-8")
@@ -355,7 +615,21 @@ def _save_project_lyrics(paths: EditorPaths, lyrics_text: str) -> None:
         state["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         _write_json_atomic(paths.state_path, state)
 
-    _sync_manifest_text_with_lyrics(paths, cleaned_text)
+    overrides = _read_overrides(paths)
+    current_word_count = 0
+    if paths.editor_manifest_path.exists() or paths.manifest_path.exists():
+        try:
+            manifest = _read_manifest(paths)
+            raw_words = manifest.get("words", [])
+            current_word_count = len(raw_words) if isinstance(raw_words, list) else 0
+        except Exception:
+            current_word_count = 0
+    next_word_count = sum(len(_split_words(line)) for line in _clean_text_lines(cleaned_text))
+
+    if int(overrides.get("placed_word_count", 0) or 0) == 0 or next_word_count != current_word_count:
+        _rebuild_manifest_from_lyrics(paths, cleaned_text)
+    else:
+        _sync_manifest_text_with_lyrics(paths, cleaned_text)
 
 
 def _project_lyrics_text(paths: EditorPaths) -> str:
@@ -428,6 +702,100 @@ def _list_projects(base_paths: EditorPaths) -> list[dict[str, Any]]:
     return projects
 
 
+def _rewrite_nested_path_strings(value: Any, old_prefix: str, new_prefix: str) -> Any:
+    if isinstance(value, str):
+        return value.replace(old_prefix, new_prefix, 1) if value.startswith(old_prefix) else value
+    if isinstance(value, list):
+        return [_rewrite_nested_path_strings(item, old_prefix, new_prefix) for item in value]
+    if isinstance(value, Mapping):
+        return {
+            str(key): _rewrite_nested_path_strings(item, old_prefix, new_prefix)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _refresh_project_intro(paths: EditorPaths) -> None:
+    if paths.editor_manifest_path.exists():
+        manifest = _load_json_file(paths.editor_manifest_path)
+        manifest["intro"] = _project_intro_metadata(paths)
+        _write_json_atomic(paths.editor_manifest_path, manifest)
+
+
+def _update_project_state_name(paths: EditorPaths, project_name: str) -> None:
+    state = _state_payload(paths)
+    if not state:
+        return
+    state["project_name"] = str(project_name).strip()
+    state["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _write_json_atomic(paths.state_path, state)
+    _refresh_project_intro(paths)
+
+
+def _rename_project(base_paths: EditorPaths, project_id: str, project_name: str) -> tuple[str, EditorPaths]:
+    cleaned_name = str(project_name).strip()
+    if not cleaned_name:
+        raise ValueError("project_name is required")
+    if not project_id or project_id == LEGACY_PROJECT_KEY:
+        raise ValueError("Only saved projects can be renamed")
+
+    old_paths = _project_paths(base_paths, project_id)
+    if not old_paths.temp_dir.exists():
+        raise FileNotFoundError(f"Project directory not found: {old_paths.temp_dir}")
+
+    new_project_id = _project_storage_key(cleaned_name, "project")
+    new_paths = _project_paths(base_paths, new_project_id)
+    if new_project_id != project_id and new_paths.temp_dir.exists():
+        raise ValueError(f"Project already exists: {cleaned_name}")
+
+    if new_project_id == project_id:
+        _update_project_state_name(old_paths, cleaned_name)
+        return new_project_id, old_paths
+
+    old_prefix = str(old_paths.temp_dir.resolve())
+    new_prefix = str(new_paths.temp_dir.resolve())
+    old_paths.temp_dir.replace(new_paths.temp_dir)
+
+    if new_paths.state_path.exists():
+        state = _load_json_file(new_paths.state_path)
+        state = _rewrite_nested_path_strings(state, old_prefix, new_prefix)
+        state["project_name"] = cleaned_name
+        state["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        _write_json_atomic(new_paths.state_path, state)
+
+    if new_paths.editor_manifest_path.exists():
+        manifest = _load_json_file(new_paths.editor_manifest_path)
+        manifest = _rewrite_nested_path_strings(manifest, old_prefix, new_prefix)
+        manifest["intro"] = _project_intro_metadata(new_paths)
+        _write_json_atomic(new_paths.editor_manifest_path, manifest)
+
+    if new_paths.manifest_path.exists():
+        manifest = _load_json_file(new_paths.manifest_path)
+        manifest = _rewrite_nested_path_strings(manifest, old_prefix, new_prefix)
+        _write_json_atomic(new_paths.manifest_path, manifest)
+
+    _set_active_project_key(base_paths, new_project_id)
+    return new_project_id, new_paths
+
+
+def _delete_project(base_paths: EditorPaths, project_id: str) -> str:
+    if not project_id:
+        raise ValueError("project_id is required")
+    if project_id == LEGACY_PROJECT_KEY:
+        raise ValueError("Legacy project deletion is not supported")
+
+    project_paths = _project_paths(base_paths, project_id)
+    if not project_paths.temp_dir.exists():
+        raise FileNotFoundError(f"Project directory not found: {project_paths.temp_dir}")
+
+    shutil.rmtree(project_paths.temp_dir)
+
+    remaining_projects = _list_projects(base_paths)
+    next_project_id = remaining_projects[0]["id"] if remaining_projects else (LEGACY_PROJECT_KEY if _legacy_project_exists(base_paths) else "")
+    _set_active_project_key(base_paths, next_project_id)
+    return next_project_id
+
+
 def _guess_input_audio_name(paths: EditorPaths, state: Mapping[str, Any]) -> str:
     source_name = str(state.get("source_name", "")).strip()
     if source_name:
@@ -452,6 +820,842 @@ def _guess_input_audio_name(paths: EditorPaths, state: Mapping[str, Any]) -> str
     return ""
 
 
+def _fetch_youtube_metadata(youtube_url: str) -> dict[str, str]:
+    normalized_url = str(youtube_url).strip()
+    if not normalized_url:
+        raise ValueError("youtube_url is required")
+    parsed = urlparse(normalized_url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"}:
+        raise ValueError("YouTube URL field only accepts youtube.com or youtu.be links")
+
+    command = [
+        "yt-dlp",
+        "--dump-single-json",
+        "--no-playlist",
+        "--no-warnings",
+        normalized_url,
+    ]
+
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("yt-dlp is not installed or not available on PATH") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        stdout = (exc.stdout or "").strip()
+        detail = stderr or stdout or "yt-dlp failed to read YouTube metadata"
+        raise RuntimeError(detail) from exc
+
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("yt-dlp returned invalid metadata JSON") from exc
+
+    if not isinstance(payload, Mapping):
+        raise RuntimeError("yt-dlp metadata response was not an object")
+
+    LOGGER.info("yt-dlp info_dict: %s", json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+
+    def read_text(*keys: str) -> str:
+        for key in keys:
+            value = payload.get(key)
+            if value:
+                return str(value).strip()
+        return ""
+
+    return {
+        "title": read_text("title", "fulltitle"),
+        "track": read_text("track"),
+        "artist": read_text("artist", "creator", "album_artist"),
+        "uploader": read_text("uploader", "channel"),
+        "channel": read_text("channel", "uploader"),
+    }
+
+
+def _clean_youtube_project_title(raw_title: str) -> str:
+    cleaned = html.unescape(str(raw_title or "")).strip()
+    if not cleaned:
+        return ""
+
+    cleaned = cleaned.replace("\u2013", "-").replace("\u2014", "-").replace("\u2010", "-")
+    suffix_patterns = [
+        r"\s*[\(\[]\s*(?:official\s+video|official\s+audio|lyrics?|audio|clip|קליפ)\s*[\)\]]\s*$",
+        r"\s*-\s*(?:official\s+video|official\s+audio|lyrics?|audio|clip|קליפ)\s*$",
+    ]
+    previous = None
+    while previous != cleaned:
+        previous = cleaned
+        for pattern in suffix_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    return cleaned
+
+
+def _download_youtube_audio(paths: EditorPaths, youtube_url: str) -> Path:
+    normalized_url = str(youtube_url).strip()
+    if not normalized_url:
+        raise ValueError("youtube_url is required")
+    parsed = urlparse(normalized_url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"}:
+        raise ValueError("YouTube URL field only accepts youtube.com or youtu.be links")
+
+    paths.input_dir.mkdir(parents=True, exist_ok=True)
+    output_template = paths.input_dir / "%(title)s [%(id)s].%(ext)s"
+    command = [
+        "yt-dlp",
+        "--no-playlist",
+        "--extract-audio",
+        "--audio-format",
+        "mp3",
+        "--audio-quality",
+        "0",
+        "--no-progress",
+        "--print",
+        "after_move:filepath",
+        "--output",
+        str(output_template),
+        normalized_url,
+    ]
+
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("yt-dlp is not installed or not available on PATH") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        stdout = (exc.stdout or "").strip()
+        detail = stderr or stdout or "yt-dlp failed to download the requested audio"
+        raise RuntimeError(detail) from exc
+
+    output_lines = [
+        line.strip().strip('"')
+        for line in (completed.stdout or "").splitlines()
+        if line.strip()
+    ]
+    for candidate in reversed(output_lines):
+        candidate_path = Path(candidate).expanduser()
+        if candidate_path.exists():
+            return candidate_path.resolve()
+
+    recent_downloads = sorted(
+        (path for path in paths.input_dir.glob("*.mp3") if path.is_file()),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    if recent_downloads:
+        return recent_downloads[0].resolve()
+
+    raise RuntimeError("yt-dlp completed, but no downloaded MP3 file was found")
+
+
+def _normalize_lookup_text(raw: str) -> str:
+    cleaned = html.unescape(str(raw or "")).replace("\xa0", " ").strip()
+    cleaned = cleaned.replace("–", "-").replace("—", "-").replace("|", "-")
+    cleaned = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", cleaned)
+    cleaned = re.sub(r"\b(?:official|lyrics?|karaoke|audio|video|live|mv|hd)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    return cleaned
+
+
+def _lookup_tokens(raw: str) -> set[str]:
+    normalized = _normalize_lookup_text(raw).lower()
+    return {
+        token
+        for token in re.split(r"[^0-9a-z\u0590-\u05FF]+", normalized)
+        if token
+    }
+
+
+def _text_similarity_score(candidate: str, expected_song: str, expected_artist: str) -> int:
+    normalized_candidate = _normalize_lookup_text(candidate).lower()
+    candidate_tokens = _lookup_tokens(normalized_candidate)
+    song_tokens = _lookup_tokens(expected_song)
+    artist_tokens = _lookup_tokens(expected_artist)
+
+    score = 0
+    song_phrase = _normalize_lookup_text(expected_song).lower()
+    artist_phrase = _normalize_lookup_text(expected_artist).lower()
+
+    if song_phrase and song_phrase in normalized_candidate:
+        score += 40
+    if artist_phrase and artist_phrase in normalized_candidate:
+        score += 28
+    if song_tokens:
+        score += 8 * len(song_tokens & candidate_tokens)
+        if song_tokens.issubset(candidate_tokens):
+            score += 16
+    if artist_tokens:
+        score += 6 * len(artist_tokens & candidate_tokens)
+        if artist_tokens.issubset(candidate_tokens):
+            score += 12
+
+    return score
+
+
+def _normalized_song_match_score(candidate: str, expected_song: str, expected_artist: str = "") -> int:
+    normalized_candidate = _normalize_lookup_text(candidate).lower()
+    normalized_song = _normalize_lookup_text(expected_song).lower()
+    normalized_artist = _normalize_lookup_text(expected_artist).lower()
+    if not normalized_song:
+        return 0
+    if normalized_song not in normalized_candidate:
+        return 0
+    if normalized_artist and normalized_artist not in normalized_candidate:
+        return 0
+    return _text_similarity_score(candidate, expected_song, expected_artist)
+
+
+def _project_name_from_lyrics_title(raw_title: str) -> str:
+    cleaned = html.unescape(str(raw_title or "")).strip()
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"^\s*\u05de\u05d9\u05dc\u05d9\u05dd\s+\u05dc\u05e9\u05d9\u05e8\s+", "", cleaned)
+    cleaned = re.sub(r"\s+».*$", "", cleaned)
+    cleaned = cleaned.replace("–", "-").replace("—", "-")
+    cleaned = re.sub(r"\s*-\s*", " - ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    return cleaned
+
+
+def _infer_song_and_artist(youtube_metadata: Mapping[str, str], fallback_name: str) -> tuple[str, str, str]:
+    raw_title = (
+        str(youtube_metadata.get("track", "")).strip()
+        or str(youtube_metadata.get("title", "")).strip()
+        or _clean_media_display_name(fallback_name)
+        or Path(fallback_name).stem
+    )
+    normalized_title = _normalize_lookup_text(raw_title)
+    artist = (
+        str(youtube_metadata.get("artist", "")).strip()
+        or str(youtube_metadata.get("uploader", "")).strip()
+        or str(youtube_metadata.get("channel", "")).strip()
+    )
+
+    segments = [segment.strip() for segment in re.split(r"\s[-/]\s", normalized_title) if segment.strip()]
+    if len(segments) >= 2:
+        left, right = segments[0], segments[1]
+        normalized_artist = _normalize_lookup_text(artist).lower()
+        if normalized_artist and normalized_artist in _normalize_lookup_text(left).lower():
+            return right, artist, normalized_title
+        if normalized_artist and normalized_artist in _normalize_lookup_text(right).lower():
+            return left, artist, normalized_title
+        inferred_artist = artist or left
+        inferred_song = right
+        return inferred_song, inferred_artist, normalized_title
+
+    return normalized_title, artist, normalized_title
+
+
+def _youtube_project_name_from_metadata(youtube_metadata: Mapping[str, str], fallback_name: str) -> str:
+    cleaned_title = _clean_youtube_project_title(str(youtube_metadata.get("title", "")).strip())
+    if cleaned_title:
+        return cleaned_title
+    fallback_title = _clean_media_display_name(fallback_name)
+    return fallback_title or Path(fallback_name).stem.strip()
+
+
+def _search_shirrim_results(query: str) -> list[dict[str, str]]:
+    search_query = str(query).strip()
+    if not search_query:
+        return []
+
+    try:
+        response = requests.get(
+            "https://shirrim.com/singers/israel-singers/",
+            params={"s": search_query},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException:
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    seen_urls: set[str] = set()
+    results: list[dict[str, str]] = []
+    for link in soup.select('a[href*="/song-lyrics/"]'):
+        href = str(link.get("href", "")).strip()
+        if not href or href.endswith("/song-lyrics/") or href in seen_urls:
+            continue
+        seen_urls.add(href)
+        title = link.get_text(" ", strip=True)
+        if not title:
+            continue
+        results.append({"title": title, "url": href, "query": search_query})
+    return results
+
+
+def _discover_project_details_from_youtube(youtube_url: str, fallback_name: str) -> dict[str, str]:
+    youtube_metadata = _fetch_youtube_metadata(youtube_url)
+    raw_video_title = str(youtube_metadata.get("title", "")).strip()
+    cleaned_video_title = _clean_youtube_project_title(raw_video_title)
+    LOGGER.info("YouTube video title extracted: %s", raw_video_title or "<missing>")
+    LOGGER.info("YouTube project title cleaned: %s", cleaned_video_title or "<fallback>")
+    expected_song, expected_artist, normalized_title = _infer_song_and_artist(youtube_metadata, fallback_name)
+
+    query_candidates = [
+        f"{expected_song} {expected_artist}".strip(),
+        f"{expected_artist} {expected_song}".strip(),
+        normalized_title,
+        expected_song,
+    ]
+
+    deduped_queries: list[str] = []
+    seen_queries: set[str] = set()
+    for query in query_candidates:
+        normalized_query = _normalize_lookup_text(query)
+        if normalized_query and normalized_query not in seen_queries:
+            seen_queries.add(normalized_query)
+            deduped_queries.append(query.strip())
+
+    best_result: dict[str, str] | None = None
+    best_score = -1
+    for query in deduped_queries:
+        for result in _search_shirrim_results(query):
+            score = _text_similarity_score(result["title"], expected_song, expected_artist)
+            if score > best_score:
+                best_score = score
+                best_result = result
+
+    if best_result is None:
+        return {}
+
+    lyrics_payload = _fetch_shirrim_lyrics(best_result["url"])
+    project_name = (
+        _project_name_from_lyrics_title(lyrics_payload.get("title", ""))
+        or _project_name_from_lyrics_title(best_result.get("title", ""))
+    )
+
+    return {
+        "lyrics_text": str(lyrics_payload.get("lyrics", "")).strip(),
+        "project_name": project_name,
+        "lyrics_source_url": str(lyrics_payload.get("source_url", "")).strip(),
+        "lyrics_title": str(lyrics_payload.get("title", "")).strip(),
+        "youtube_title": str(youtube_metadata.get("title", "")).strip(),
+        "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
+    }
+
+
+def _fetch_shirrim_lyrics(shirrim_url: str) -> dict[str, str]:
+    normalized_url = str(shirrim_url).strip()
+    if not normalized_url:
+        raise ValueError("lyrics_url is required")
+
+    parsed = urlparse(normalized_url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"shirrim.com", "www.shirrim.com"}:
+        raise ValueError("Only shirrim.com lyrics pages are supported")
+    if "/song-lyrics/" not in parsed.path:
+        raise ValueError("Expected a shirrim.com song lyrics page")
+
+    try:
+        response = requests.get(
+            normalized_url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Failed to fetch lyrics page: {exc}") from exc
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    lyrics_container = None
+    for candidate in soup.select("div.jet-listing-dynamic-field__content"):
+        text = candidate.get_text("\n", strip=True)
+        if text.startswith("המילים של השיר"):
+            lyrics_container = candidate
+            break
+
+    if lyrics_container is None:
+        raise RuntimeError("Could not locate lyrics on the provided shirrim.com page")
+
+    extracted_lines: list[str] = []
+    for paragraph in lyrics_container.find_all("p"):
+        paragraph_lines = [line.strip() for line in paragraph.get_text("\n").splitlines() if line.strip()]
+        if paragraph_lines:
+            extracted_lines.extend(paragraph_lines)
+            extracted_lines.append("")
+
+    if extracted_lines and extracted_lines[-1] == "":
+        extracted_lines.pop()
+
+    lyrics_text = "\n".join(extracted_lines).strip()
+    if not lyrics_text:
+        raw_text = lyrics_container.get_text("\n", strip=True)
+        lyrics_text = raw_text.replace("המילים של השיר:", "", 1).strip()
+
+    if not lyrics_text:
+        raise RuntimeError("Lyrics block was found, but no lyrics text could be extracted")
+
+    title = ""
+    title_node = soup.select_one("h1.elementor-heading-title")
+    if title_node is not None:
+        title = title_node.get_text(" ", strip=True)
+
+    return {
+        "lyrics": lyrics_text,
+        "title": title,
+        "source_url": normalized_url,
+    }
+
+
+def _fetch_shirrim_lyrics(shirrim_url: str) -> dict[str, str]:
+    normalized_url = str(shirrim_url).strip()
+    if not normalized_url:
+        raise ValueError("lyrics_url is required")
+
+    parsed = urlparse(normalized_url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"shirrim.com", "www.shirrim.com"}:
+        raise ValueError("Only shirrim.com lyrics pages are supported")
+    if "/song-lyrics/" not in parsed.path:
+        raise ValueError("Expected a shirrim.com song lyrics page")
+
+    try:
+        response = requests.get(
+            normalized_url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Failed to fetch lyrics page: {exc}") from exc
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    lyrics_container = None
+    lyrics_prefix = "\u05d4\u05de\u05d9\u05dc\u05d9\u05dd \u05e9\u05dc \u05d4\u05e9\u05d9\u05e8"
+    for candidate in soup.select("div.jet-listing-dynamic-field__content"):
+        text = candidate.get_text("\n", strip=True)
+        if text.startswith(lyrics_prefix):
+            lyrics_container = candidate
+            break
+
+    if lyrics_container is None:
+        raise RuntimeError("Could not locate lyrics on the provided shirrim.com page")
+
+    extracted_lines: list[str] = []
+    for paragraph in lyrics_container.find_all("p"):
+        paragraph_lines = [line.strip() for line in paragraph.get_text("\n").splitlines() if line.strip()]
+        if paragraph_lines:
+            extracted_lines.extend(paragraph_lines)
+            extracted_lines.append("")
+
+    if extracted_lines and extracted_lines[-1] == "":
+        extracted_lines.pop()
+
+    lyrics_text = "\n".join(extracted_lines).strip()
+    if not lyrics_text:
+        raw_text = lyrics_container.get_text("\n", strip=True)
+        lyrics_text = raw_text.replace(f"{lyrics_prefix}:", "", 1).strip()
+
+    if not lyrics_text:
+        raise RuntimeError("Lyrics block was found, but no lyrics text could be extracted")
+
+    title = ""
+    title_node = soup.select_one("h1.elementor-heading-title")
+    if title_node is not None:
+        title = title_node.get_text(" ", strip=True)
+
+    return {
+        "lyrics": lyrics_text,
+        "title": title,
+        "source_url": normalized_url,
+    }
+
+
+def _normalize_lookup_text(raw: str) -> str:
+    cleaned = html.unescape(str(raw or "")).replace("\xa0", " ").strip()
+    cleaned = cleaned.replace("\u2013", "-").replace("\u2014", "-").replace("|", "-")
+    cleaned = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", cleaned)
+    cleaned = re.sub(r"https?://\S+", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b(?:official|lyrics?|karaoke|audio|video|live|mv|hd|prod|production|version|remaster(?:ed)?)\b",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    return cleaned
+
+
+def _hebrew_only_text(raw: str) -> str:
+    cleaned = _normalize_lookup_text(raw)
+    cleaned = re.sub(r"[^0-9\u0590-\u05FF'\"׳״/\- ]+", " ", cleaned)
+    cleaned = cleaned.replace("/", " - ")
+    cleaned = re.sub(r"\s*-\s*", " - ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    return cleaned
+
+
+def _hebrew_dash_title(raw: str) -> str:
+    normalized = _normalize_lookup_text(raw)
+    segments = [segment.strip() for segment in re.split(r"\s*-\s*", normalized) if segment.strip()]
+    hebrew_segments: list[str] = []
+    for segment in segments:
+        hebrew = _hebrew_only_text(segment)
+        if len(re.findall(r"[\u0590-\u05FF]", hebrew)) >= 2 and hebrew not in hebrew_segments:
+            hebrew_segments.append(hebrew)
+    if len(hebrew_segments) >= 2:
+        return " - ".join(hebrew_segments[:2])
+    if hebrew_segments:
+        return hebrew_segments[0]
+    return ""
+
+
+def _preferred_source_audio_name(project_name: str, fallback_name: str) -> str:
+    preferred_stem = (
+        _hebrew_dash_title(project_name)
+        or _project_name_from_lyrics_title(project_name)
+        or _hebrew_dash_title(fallback_name)
+        or _clean_media_display_name(fallback_name)
+        or Path(fallback_name).stem.strip()
+        or "manual_input"
+    )
+    suffix = Path(fallback_name).suffix.strip() or ".mp3"
+    return f"{preferred_stem}{suffix}"
+
+
+def _lookup_tokens(raw: str) -> set[str]:
+    normalized = _normalize_lookup_text(raw).lower()
+    return {
+        token
+        for token in re.split(r"[^0-9a-z\u0590-\u05FF]+", normalized)
+        if token
+    }
+
+
+def _text_similarity_score(candidate: str, expected_song: str, expected_artist: str) -> int:
+    normalized_candidate = _normalize_lookup_text(candidate).lower()
+    candidate_tokens = _lookup_tokens(normalized_candidate)
+    song_tokens = _lookup_tokens(expected_song)
+    artist_tokens = _lookup_tokens(expected_artist)
+
+    score = 0
+    song_phrase = _normalize_lookup_text(expected_song).lower()
+    artist_phrase = _normalize_lookup_text(expected_artist).lower()
+
+    if song_phrase and song_phrase in normalized_candidate:
+        score += 40
+    if artist_phrase and artist_phrase in normalized_candidate:
+        score += 28
+    if song_tokens:
+        score += 8 * len(song_tokens & candidate_tokens)
+        if song_tokens.issubset(candidate_tokens):
+            score += 16
+    if artist_tokens:
+        score += 6 * len(artist_tokens & candidate_tokens)
+        if artist_tokens.issubset(candidate_tokens):
+            score += 12
+
+    return score
+
+
+def _project_name_from_lyrics_title(raw_title: str) -> str:
+    cleaned = html.unescape(str(raw_title or "")).strip()
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"^\s*\u05de\u05d9\u05dc\u05d9\u05dd\s+\u05dc\u05e9\u05d9\u05e8\s+", "", cleaned)
+    cleaned = re.sub(r"\s+».*$", "", cleaned)
+    cleaned = cleaned.replace("\u2013", "-").replace("\u2014", "-")
+    cleaned = re.sub(r"\s*-\s*", " - ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    hebrew_title = _hebrew_dash_title(cleaned)
+    if hebrew_title:
+        segments = [segment.strip() for segment in hebrew_title.split(" - ") if segment.strip()]
+        if len(segments) >= 2:
+            return f"{segments[1]} - {segments[0]}"
+        return hebrew_title
+    return cleaned
+
+
+def _infer_song_and_artist(youtube_metadata: Mapping[str, str], fallback_name: str) -> tuple[str, str, str]:
+    raw_title = (
+        str(youtube_metadata.get("track", "")).strip()
+        or str(youtube_metadata.get("title", "")).strip()
+        or _clean_media_display_name(fallback_name)
+        or Path(fallback_name).stem
+    )
+    normalized_title = _hebrew_dash_title(raw_title) or _normalize_lookup_text(raw_title)
+    artist = (
+        str(youtube_metadata.get("artist", "")).strip()
+        or str(youtube_metadata.get("uploader", "")).strip()
+        or str(youtube_metadata.get("channel", "")).strip()
+    )
+    artist = _hebrew_only_text(artist) or _normalize_lookup_text(artist)
+
+    segments = [segment.strip() for segment in re.split(r"\s*-\s*", normalized_title) if segment.strip()]
+    if len(segments) >= 2:
+        left, right = segments[0], segments[1]
+        normalized_artist = _normalize_lookup_text(artist).lower()
+        if normalized_artist and normalized_artist in _normalize_lookup_text(left).lower():
+            return right, artist, normalized_title
+        if normalized_artist and normalized_artist in _normalize_lookup_text(right).lower():
+            return left, artist, normalized_title
+        return left, artist or right, normalized_title
+
+    return normalized_title, artist, normalized_title
+
+
+def _search_shirrim_results(query: str) -> list[dict[str, str]]:
+    search_query = str(query).strip()
+    if not search_query:
+        return []
+
+    try:
+        response = requests.get(
+            "https://shirrim.com/singers/israel-singers/",
+            params={"s": search_query},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException:
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    seen_urls: set[str] = set()
+    results: list[dict[str, str]] = []
+    for link in soup.select('a[href*="/song-lyrics/"]'):
+        href = str(link.get("href", "")).strip()
+        if not href or href in seen_urls:
+            continue
+        parsed_href = urlparse(href)
+        if parsed_href.netloc and parsed_href.netloc not in {"shirrim.com", "www.shirrim.com"}:
+            continue
+        if not parsed_href.path.startswith("/song-lyrics/") or parsed_href.path.rstrip("/") == "/song-lyrics":
+            continue
+        seen_urls.add(href)
+        title = link.get_text(" ", strip=True)
+        if not title:
+            continue
+        results.append({"title": title, "url": href, "query": search_query})
+    return results
+
+
+def _discover_project_details_from_youtube(youtube_url: str, fallback_name: str) -> dict[str, str]:
+    youtube_metadata = _fetch_youtube_metadata(youtube_url)
+    raw_video_title = str(youtube_metadata.get("title", "")).strip()
+    cleaned_video_title = _clean_youtube_project_title(raw_video_title)
+    LOGGER.info("YouTube video title extracted: %s", raw_video_title or "<missing>")
+    LOGGER.info("YouTube project title cleaned: %s", cleaned_video_title or "<fallback>")
+    expected_song, expected_artist, normalized_title = _infer_song_and_artist(youtube_metadata, fallback_name)
+    youtube_project_name = _youtube_project_name_from_metadata(youtube_metadata, fallback_name)
+    song_query = _hebrew_only_text(expected_song) or _normalize_lookup_text(expected_song)
+    artist_filter = _hebrew_only_text(expected_artist) or _normalize_lookup_text(expected_artist)
+    if not song_query:
+        return {
+            "lyrics_text": "",
+            "project_name": "",
+            "youtube_project_name": youtube_project_name,
+            "lyrics_source_url": "",
+            "lyrics_title": "",
+            "youtube_title": raw_video_title,
+            "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
+        }
+
+    scored_results: list[tuple[int, dict[str, str]]] = []
+    for result in _search_shirrim_results(song_query):
+        score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+        if score <= 0:
+            continue
+        scored_results.append((score, result))
+
+    base_payload = {
+        "lyrics_text": "",
+        "project_name": "",
+        "youtube_project_name": youtube_project_name,
+        "lyrics_source_url": "",
+        "lyrics_title": "",
+        "youtube_title": raw_video_title,
+        "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
+    }
+
+    if not scored_results:
+        return base_payload
+
+    scored_results.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_result = scored_results[0]
+    if best_score < 55:
+        return base_payload
+
+    try:
+        lyrics_payload = _fetch_shirrim_lyrics(best_result["url"])
+    except Exception:
+        return base_payload
+
+    matched_song = str(lyrics_payload.get("title", "")).strip() or str(best_result.get("title", "")).strip()
+    matched_score = _normalized_song_match_score(matched_song, song_query, artist_filter)
+    if matched_score < 55:
+        return base_payload
+
+    project_name = (
+        _project_name_from_lyrics_title(lyrics_payload.get("title", ""))
+        or _project_name_from_lyrics_title(best_result.get("title", ""))
+    )
+    return {
+        "lyrics_text": str(lyrics_payload.get("lyrics", "")).strip(),
+        "project_name": project_name,
+        "youtube_project_name": youtube_project_name,
+        "lyrics_source_url": str(lyrics_payload.get("source_url", "")).strip(),
+        "lyrics_title": str(lyrics_payload.get("title", "")).strip(),
+        "youtube_title": str(youtube_metadata.get("title", "")).strip(),
+        "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
+    }
+
+    return base_payload
+
+
+def _discover_project_details_from_audio_filename(audio_filename: str) -> dict[str, str]:
+    original_name = str(audio_filename or "").strip()
+    source_stem = Path(original_name).stem.strip() or _clean_media_display_name(original_name)
+    project_name = source_stem or "Project"
+
+    artist = ""
+    song = source_stem
+    if " - " in source_stem:
+        parts = [segment.strip() for segment in source_stem.split(" - ", 1)]
+        if len(parts) == 2 and parts[0] and parts[1]:
+            artist, song = parts[0], parts[1]
+
+    song_query = _hebrew_only_text(song) or _normalize_lookup_text(song)
+    artist_filter = _hebrew_only_text(artist) or _normalize_lookup_text(artist)
+
+    scored_results: list[tuple[int, dict[str, str]]] = []
+    for result in _search_shirrim_results(song_query):
+        score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+        if score <= 0:
+            continue
+        scored_results.append((score, result))
+
+    base_payload = {
+        "project_name": project_name,
+        "lyrics_text": "",
+        "lyrics_source_url": "",
+        "lyrics_title": "",
+        "source_query": song,
+        "source_artist": artist,
+    }
+
+    if not scored_results:
+        return base_payload
+
+    scored_results.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_result = scored_results[0]
+    if best_score < 55:
+        return base_payload
+
+    try:
+        lyrics_payload = _fetch_shirrim_lyrics(best_result["url"])
+    except Exception:
+        return base_payload
+    matched_song = str(lyrics_payload.get("title", "")).strip() or str(best_result.get("title", "")).strip()
+    matched_score = _normalized_song_match_score(matched_song, song_query, artist_filter)
+    if matched_score < 55:
+        return base_payload
+
+    return {
+        "project_name": project_name,
+        "lyrics_text": str(lyrics_payload.get("lyrics", "")).strip(),
+        "lyrics_source_url": str(lyrics_payload.get("source_url", "")).strip(),
+        "lyrics_title": str(lyrics_payload.get("title", "")).strip(),
+        "source_query": song,
+        "source_artist": artist,
+    }
+
+
+def _find_shirrim_lyrics_link(soup: BeautifulSoup, base_url: str) -> str:
+    for link in soup.find_all("a", href=True):
+        href = str(link.get("href", "")).strip()
+        if not href:
+            continue
+        resolved = urljoin(base_url, href)
+        parsed = urlparse(resolved)
+        hostname = (parsed.hostname or "").lower()
+        if hostname not in {"shirrim.com", "www.shirrim.com"}:
+            continue
+        if not parsed.path.startswith("/song-lyrics/"):
+            continue
+        text = " ".join(link.get_text(" ", strip=True).split())
+        if text.startswith("\u05dc\u05de\u05d9\u05dc\u05d9\u05dd \u05e9\u05dc \u05d4\u05e9\u05d9\u05e8"):
+            return resolved
+    return ""
+
+
+def _fetch_shirrim_lyrics(shirrim_url: str) -> dict[str, str]:
+    normalized_url = str(shirrim_url).strip()
+    if not normalized_url:
+        raise ValueError("lyrics_url is required")
+
+    parsed = urlparse(normalized_url)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"shirrim.com", "www.shirrim.com"}:
+        raise ValueError("Only shirrim.com lyrics pages are supported")
+    if not parsed.path.startswith("/song-lyrics/") and not parsed.path.startswith("/song-chrods/"):
+        raise ValueError("Expected a shirrim.com lyrics or chords page")
+
+    try:
+        response = requests.get(
+            normalized_url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Failed to fetch lyrics page: {exc}") from exc
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    if parsed.path.startswith("/song-chrods/"):
+        lyrics_url = _find_shirrim_lyrics_link(soup, normalized_url)
+        if not lyrics_url:
+            raise RuntimeError("Could not find the lyrics page link on the provided shirrim.com chords page")
+        return _fetch_shirrim_lyrics(lyrics_url)
+
+    lyrics_prefix = "\u05d4\u05de\u05d9\u05dc\u05d9\u05dd \u05e9\u05dc \u05d4\u05e9\u05d9\u05e8"
+    lyrics_container = None
+    for candidate in soup.select("div.jet-listing-dynamic-field__content"):
+        text = candidate.get_text("\n", strip=True)
+        if text.startswith(lyrics_prefix):
+            lyrics_container = candidate
+            break
+
+    if lyrics_container is None:
+        lyrics_url = _find_shirrim_lyrics_link(soup, normalized_url)
+        if lyrics_url and lyrics_url != normalized_url:
+            return _fetch_shirrim_lyrics(lyrics_url)
+        raise RuntimeError("Could not locate lyrics on the provided shirrim.com page")
+
+    extracted_lines: list[str] = []
+    for paragraph in lyrics_container.find_all("p"):
+        paragraph_lines = [line.strip() for line in paragraph.get_text("\n").splitlines() if line.strip()]
+        if paragraph_lines:
+            extracted_lines.extend(paragraph_lines)
+            extracted_lines.append("")
+
+    if extracted_lines and extracted_lines[-1] == "":
+        extracted_lines.pop()
+
+    lyrics_text = "\n".join(extracted_lines).strip()
+    if not lyrics_text:
+        raw_text = lyrics_container.get_text("\n", strip=True)
+        lyrics_text = raw_text.replace(f"{lyrics_prefix}:", "", 1).strip()
+
+    if not lyrics_text:
+        raise RuntimeError("Lyrics block was found, but no lyrics text could be extracted")
+
+    title = ""
+    title_node = soup.select_one("h1.elementor-heading-title")
+    if title_node is not None:
+        title = title_node.get_text(" ", strip=True)
+
+    return {
+        "lyrics": lyrics_text,
+        "title": title,
+        "source_url": normalized_url,
+    }
+
+
 def _write_manual_project(
     paths: EditorPaths,
     audio_source: Path,
@@ -459,24 +1663,43 @@ def _write_manual_project(
     config_path: Path,
     original_name: str,
     project_name: str,
+    preferred_source_name: str | None = None,
+    lyrics_source_url: str = "",
 ) -> dict[str, Any]:
     paths.input_dir.mkdir(parents=True, exist_ok=True)
     paths.temp_dir.mkdir(parents=True, exist_ok=True)
 
-    stored_input_name = _sanitize_filename(original_name, "manual_input.mp3")
+    stored_input_name = _sanitize_filename(preferred_source_name or original_name, "manual_input.mp3")
     stored_input_path = paths.input_dir / stored_input_name
-    stored_input_path.write_bytes(audio_source.read_bytes())
+    try:
+        source_path = audio_source.resolve()
+    except Exception:
+        source_path = audio_source
+    try:
+        target_path = stored_input_path.resolve()
+    except Exception:
+        target_path = stored_input_path
+
+    if source_path != target_path:
+        if source_path.parent == paths.input_dir.resolve():
+            if stored_input_path.exists():
+                stored_input_path.unlink()
+            audio_source.replace(stored_input_path)
+        else:
+            shutil.copyfile(audio_source, stored_input_path)
 
     extract_and_normalize_audio(stored_input_path, paths.audio_path, config_path)
     duration_seconds = _read_wav_duration(paths.audio_path)
     lyric_lines = _clean_text_lines(lyrics_text)
     words, line_entries = _build_word_stream(lyric_lines, duration_seconds)
+    intro_metadata = _project_intro_metadata(paths)
 
     manifest = {
         "version": 1,
         "source_audio": str(stored_input_path),
         "lines": line_entries,
         "words": words,
+        "intro": intro_metadata,
     }
     overrides = _default_manual_overrides()
     state = {
@@ -487,6 +1710,7 @@ def _write_manual_project(
         "source_name": stored_input_name,
         "original_audio_name": str(original_name).strip(),
         "lyrics_text": "\n".join(lyric_lines),
+        "lyrics_source_url": str(lyrics_source_url).strip(),
         "audio_wav": str(paths.audio_path),
         "manifest_path": str(paths.editor_manifest_path),
         "overrides_path": str(paths.overrides_path),
@@ -512,7 +1736,7 @@ def _write_empty_project(paths: EditorPaths, project_name: str, lyrics_text: str
     lyric_lines = _clean_text_lines(lyrics_text)
     seed_duration = float(max(sum(len(_split_words(line)) for line in lyric_lines), 0))
     words, lines_payload = _build_word_stream(lyric_lines, seed_duration)
-    manifest = {"lines": lines_payload, "words": words}
+    manifest = {"lines": lines_payload, "words": words, "intro": _project_intro_metadata(paths)}
     overrides = _default_manual_overrides()
     overrides["lyrics_text"] = "\n".join(lyric_lines)
     state = {
@@ -526,6 +1750,7 @@ def _write_empty_project(paths: EditorPaths, project_name: str, lyrics_text: str
         "line_count": len(lines_payload),
         "word_count": len(words),
         "lyrics_text": "\n".join(lyric_lines),
+        "lyrics_source_url": "",
         "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "artifacts": {},
     }
@@ -534,6 +1759,140 @@ def _write_empty_project(paths: EditorPaths, project_name: str, lyrics_text: str
     _write_json_atomic(paths.state_path, state)
     _lyrics_path(paths).write_text("\n".join(lyric_lines), encoding="utf-8")
     return state
+
+
+def _attach_audio_to_project(
+    paths: EditorPaths,
+    project_name: str,
+    audio_source: Path,
+    original_name: str,
+    lyrics_text: str | None = None,
+    preferred_source_name: str | None = None,
+    lyrics_source_url: str = "",
+) -> dict[str, Any]:
+    effective_lyrics = lyrics_text if lyrics_text is not None else _project_lyrics_text(paths)
+    return _write_manual_project(
+        paths=paths,
+        audio_source=audio_source,
+        lyrics_text=effective_lyrics,
+        config_path=paths.config_path,
+        original_name=original_name,
+        project_name=project_name,
+        preferred_source_name=preferred_source_name,
+        lyrics_source_url=lyrics_source_url,
+    )
+
+
+def _terminate_process_tree(pid: int) -> None:
+    if pid <= 0:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            return
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except Exception:
+            os.kill(pid, signal.SIGTERM)
+    except Exception:
+        pass
+
+
+def _execute_ai_first_pass_job(
+    base_paths: EditorPaths,
+    *,
+    job_id: str,
+    project_key: str,
+    project_name: str,
+    source_path: str,
+    source_name: str,
+    original_audio_name: str,
+    lyrics_text: str,
+    lyrics_source_url: str,
+) -> dict[str, Any]:
+    initial_job = _default_pipeline_job()
+    initial_job.update(
+        {
+            "job_id": job_id,
+            "status": "running",
+            "started_at": _timestamp(),
+            "updated_at": _timestamp(),
+            "project_id": project_key,
+            "project_name": project_name,
+        }
+    )
+    _write_pipeline_job(base_paths, initial_job)
+    _update_pipeline_stage(base_paths, initial_job, "download_convert", "skipped", "Using existing project audio")
+    job = _read_pipeline_job(base_paths)
+
+    def mark(stage_key: str, status: str, detail: str = "") -> None:
+        nonlocal job
+        job = _update_pipeline_stage(base_paths, job, stage_key, status, detail)
+
+    try:
+        mark("stem_separation", "running", "Preparing vocal stems")
+        autosync_result = run_first_pass_autosync(
+            Path(source_path),
+            base_paths.config_path,
+            project_name=project_name,
+            source_name=source_name,
+            original_audio_name=original_audio_name,
+            lyrics_text=lyrics_text,
+            lyrics_source_url=lyrics_source_url,
+            project_key=project_key,
+            progress_callback=mark,
+        )
+        _set_active_project_key(base_paths, project_key)
+        completed_job = _read_pipeline_job(base_paths)
+        _write_pipeline_job(
+            base_paths,
+            {
+                **completed_job,
+                "status": "completed",
+                "project_id": project_key,
+                "project_name": project_name,
+                "current_stage_key": "",
+                "current_stage_label": "",
+                "stage_started_at": None,
+                "stage_elapsed_seconds": 0.0,
+                "updated_at": _timestamp(),
+                "error": None,
+                "stages": completed_job.get("stages", _default_pipeline_job()["stages"]),
+            },
+        )
+        final_job = _decorate_pipeline_job(_read_pipeline_job(base_paths))
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "status": "completed",
+            "message": "Pipeline completed",
+            "project_id": project_key,
+            "project_name": project_name,
+            "stages": final_job.get("stages", []),
+            "lyrics_source_url": lyrics_source_url,
+            "lyrics_title": str(autosync_result.get("transcript", {}).get("correction_model_name", "")).strip(),
+        }
+    except Exception as exc:
+        mark("stem_separation", "error", str(exc))
+        failed_job = _read_pipeline_job(base_paths)
+        _write_pipeline_job(
+            base_paths,
+            {
+                **failed_job,
+                "status": "error",
+                "updated_at": _timestamp(),
+                "error": str(exc),
+                "current_stage_key": "",
+                "current_stage_label": "",
+                "stage_started_at": None,
+            },
+        )
+        raise
 
 
 def _read_manifest(paths: EditorPaths) -> dict[str, Any]:
@@ -598,6 +1957,7 @@ def _resolve_manual_word_windows(
     overrides: Mapping[str, Any],
 ) -> dict[str, tuple[float, float, str]]:
     global_offset = float(overrides.get("global_offset", 0.0))
+    placed_word_count = max(int(overrides.get("placed_word_count", 0) or 0), 0)
     word_overrides = overrides.get("words", {})
     if not isinstance(word_overrides, Mapping):
         word_overrides = {}
@@ -612,6 +1972,9 @@ def _resolve_manual_word_windows(
             continue
         word_id = str(item.get("id", "")).strip()
         if not word_id:
+            continue
+        word_index = max(int(item.get("index", len(windows))), 0)
+        if word_index >= placed_word_count:
             continue
 
         start = float(item.get("start", 0.0)) + global_offset
@@ -643,6 +2006,7 @@ def _build_manual_subtitles(paths: EditorPaths, config: Mapping[str, Any]) -> Pa
     temp_dir.mkdir(parents=True, exist_ok=True)
     assets_dir = temp_dir / settings["assets_dir_name"]
     settings["assets_dir"] = str(assets_dir)
+    preroll_seconds = max(float(settings.get("sentence_preroll_seconds", 1.0)), 0.0)
 
     word_windows = _resolve_manual_word_windows(manifest, overrides)
     line_payloads: list[dict[str, Any]] = []
@@ -680,13 +2044,16 @@ def _build_manual_subtitles(paths: EditorPaths, config: Mapping[str, Any]) -> Pa
     overlap_epsilon = 0.01
     for index, payload in enumerate(line_payloads):
         next_start = None
+        next_display_text = ""
         if index + 1 < len(line_payloads):
             next_start = float(line_payloads[index + 1]["start"])
+            next_display_text = str(line_payloads[index + 1]["text"]).strip()
 
         start = float(payload["start"])
         end = float(payload["end"])
         if next_start is not None:
-            end = min(end, max(start + overlap_epsilon, next_start - overlap_epsilon))
+            next_visible_start = max(next_start - preroll_seconds, 0.0)
+            end = min(end, max(start + overlap_epsilon, next_visible_start - overlap_epsilon))
 
         windows: list[tuple[float, float, str]] = []
         for word_start, word_end, word_text in payload["windows"]:
@@ -712,6 +2079,7 @@ def _build_manual_subtitles(paths: EditorPaths, config: Mapping[str, Any]) -> Pa
                 start,
                 end,
                 windows,
+                next_display_text,
                 assets_dir,
                 settings,
             )
@@ -733,7 +2101,19 @@ def _build_manual_subtitles(paths: EditorPaths, config: Mapping[str, Any]) -> Pa
     manifest_path = temp_dir / settings["manifest_name"]
     ass_path.write_text(build_ass_header(settings) + "\n".join(dialogue_lines) + "\n", encoding="utf-8")
     manifest_path.write_text(
-        json.dumps({"lines": line_entries, "events": image_events}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {
+                "intro": {
+                    "title": _project_intro_metadata(paths).get("intro_title", ""),
+                    "subtitle": _project_intro_metadata(paths).get("intro_subtitle", ""),
+                    "intro_duration_seconds": _project_intro_metadata(paths).get("intro_duration_seconds", 2.5),
+                },
+                "lines": line_entries,
+                "events": _append_countdown_events(image_events, line_entries, assets_dir, settings),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     return ass_path
@@ -750,10 +2130,14 @@ def _resolved_manual_words(
     word_overrides = overrides.get("words", {})
     if not isinstance(word_overrides, Mapping):
         word_overrides = {}
+    placed_word_count = max(int(overrides.get("placed_word_count", 0) or 0), 0)
 
     resolved_words: list[dict[str, Any]] = []
     for index, item in enumerate(raw_words):
         if not isinstance(item, Mapping):
+            continue
+        word_index = max(int(item.get("index", index)), 0)
+        if word_index >= placed_word_count:
             continue
         start = float(item.get("start", 0.0))
         end = float(item.get("end", start + 0.12))
@@ -766,7 +2150,7 @@ def _resolved_manual_words(
         resolved_words.append(
             {
                 "id": str(item.get("id", f"word_{index:04d}")),
-                "index": int(item.get("index", index)),
+                "index": word_index,
                 "line_index": int(item.get("line_index", 0)),
                 "text": str(item.get("text", "")).strip(),
                 "start": start,
@@ -852,6 +2236,8 @@ def _manual_render_audio_path(paths: EditorPaths) -> Path:
         no_vocals = artifacts.get("no_vocals_wav")
         if no_vocals:
             no_vocals_path = Path(str(no_vocals))
+            if not no_vocals_path.is_absolute():
+                no_vocals_path = (paths.root_dir / no_vocals_path).resolve()
             if no_vocals_path.exists():
                 return no_vocals_path
 
@@ -863,7 +2249,7 @@ def _manual_render_audio_path(paths: EditorPaths) -> Path:
 
 def _ensure_project_backing_track(paths: EditorPaths) -> Path:
     preferred_audio = _manual_render_audio_path(paths)
-    if preferred_audio.exists() and preferred_audio != paths.audio_path:
+    if preferred_audio.exists() and preferred_audio != paths.audio_path and preferred_audio.parent.resolve() == paths.temp_dir.resolve():
         return preferred_audio
 
     if not paths.audio_path.exists():
@@ -874,12 +2260,21 @@ def _ensure_project_backing_track(paths: EditorPaths) -> Path:
     except Exception:
         return paths.audio_path
 
+    project_vocals_path = paths.temp_dir / "vocals.wav"
+    project_no_vocals_path = paths.temp_dir / "no_vocals.wav"
+    source_vocals_path = Path(str(separation_outputs.get("vocals", project_vocals_path)))
+    source_no_vocals_path = Path(str(separation_outputs.get("no_vocals", project_no_vocals_path)))
+    if source_vocals_path.exists() and source_vocals_path.resolve() != project_vocals_path.resolve():
+        shutil.copyfile(source_vocals_path, project_vocals_path)
+    if source_no_vocals_path.exists() and source_no_vocals_path.resolve() != project_no_vocals_path.resolve():
+        shutil.copyfile(source_no_vocals_path, project_no_vocals_path)
+
     state = _state_payload(paths)
     existing_artifacts = state.get("artifacts", {})
     artifacts = dict(existing_artifacts) if isinstance(existing_artifacts, Mapping) else {}
     artifacts["audio_wav"] = str(paths.audio_path)
-    artifacts["vocals_wav"] = str(separation_outputs.get("vocals", paths.temp_dir / "vocals.wav"))
-    artifacts["no_vocals_wav"] = str(separation_outputs.get("no_vocals", paths.temp_dir / "no_vocals.wav"))
+    artifacts["vocals_wav"] = str(project_vocals_path if project_vocals_path.exists() else source_vocals_path)
+    artifacts["no_vocals_wav"] = str(project_no_vocals_path if project_no_vocals_path.exists() else source_no_vocals_path)
     state["artifacts"] = artifacts
     _write_json_atomic(paths.state_path, state)
 
@@ -978,17 +2373,17 @@ def _manual_output_video_name(paths: EditorPaths) -> str:
     state = _state_payload(paths)
     source_name = _guess_input_audio_name(paths, state)
     if source_name:
-        base_name = Path(source_name).stem.strip() or "karaoke"
+        base_name = _clean_media_display_name(source_name) or Path(source_name).stem.strip() or "karaoke"
         return f"{base_name} (Kareoke).mp4"
 
     original_audio_name = str(state.get("original_audio_name", "")).strip()
     if original_audio_name:
-        base_name = Path(original_audio_name).stem.strip() or "karaoke"
+        base_name = _clean_media_display_name(original_audio_name) or Path(original_audio_name).stem.strip() or "karaoke"
         return f"{base_name} (Kareoke).mp4"
 
     audio_source_raw = str(state.get("audio_source", "")).strip()
     if audio_source_raw:
-        base_name = Path(audio_source_raw).stem.strip() or "karaoke"
+        base_name = _clean_media_display_name(audio_source_raw) or Path(audio_source_raw).stem.strip() or "karaoke"
         return f"{base_name} (Kareoke).mp4"
 
     project_name = str(state.get("project_name", "")).strip()
@@ -1010,6 +2405,9 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
     base_paths = _editor_paths(config_path)
     app = Flask(__name__)
     app.config["TIMING_EDITOR_PATHS"] = base_paths
+    app.config["PIPELINE_LOCK"] = threading.Lock()
+    app.config["PIPELINE_JOB"] = _read_pipeline_job(base_paths)
+    app.config["PIPELINE_WORKER"] = None
     app.config["EXPORT_JOB"] = {
         "status": "idle",
         "detail": None,
@@ -1153,6 +2551,297 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             job.update(updates)
             app.config["EXPORT_JOB"] = job
 
+    def set_pipeline_job(**updates: Any) -> dict[str, Any]:
+        with app.config["PIPELINE_LOCK"]:
+            job = dict(app.config["PIPELINE_JOB"])
+            if not job:
+                job = _default_pipeline_job()
+            job.update(updates)
+            if "stages" not in job or not isinstance(job.get("stages"), list):
+                job["stages"] = _default_pipeline_job()["stages"]
+            app.config["PIPELINE_JOB"] = job
+            _write_pipeline_job(base_paths, job)
+            return job
+
+    def _current_pipeline_worker() -> dict[str, Any] | None:
+        worker = app.config.get("PIPELINE_WORKER")
+        if not isinstance(worker, dict) or not worker:
+            return None
+        process = worker.get("process")
+        if process is not None and hasattr(process, "is_alive") and not process.is_alive():
+            app.config["PIPELINE_WORKER"] = None
+            return None
+        return worker
+
+    def _clear_pipeline_worker() -> None:
+        app.config["PIPELINE_WORKER"] = None
+
+    def _launch_ai_first_pass_worker(
+        job_id: str,
+        *,
+        project_key: str,
+        project_name: str,
+        source_path: Path,
+        source_name: str,
+        original_audio_name: str,
+        lyrics_text: str,
+        lyrics_source_url: str,
+    ) -> mp.Process:
+        worker = mp.get_context("spawn").Process(
+            target=_execute_ai_first_pass_job,
+            args=(
+                base_paths,
+            ),
+            kwargs={
+                "job_id": job_id,
+                "project_key": project_key,
+                "project_name": project_name,
+                "source_path": str(source_path),
+                "source_name": source_name,
+                "original_audio_name": original_audio_name,
+                "lyrics_text": lyrics_text,
+                "lyrics_source_url": lyrics_source_url,
+            },
+            daemon=True,
+        )
+        worker.start()
+        app.config["PIPELINE_WORKER"] = {
+            "kind": "ai_first_pass",
+            "job_id": job_id,
+            "process": worker,
+            "project_key": project_key,
+            "project_name": project_name,
+        }
+        return worker
+
+    def _run_youtube_import_job(raw_payload: Mapping[str, Any], job_id: str) -> dict[str, Any]:
+        youtube_url = str(raw_payload.get("youtube_url", "")).strip()
+        if not youtube_url:
+            raise ValueError("youtube_url is required")
+
+        if str(set_pipeline_job().get("status", "")).lower() == "running":
+            raise RuntimeError("Another pipeline job is already running")
+
+        requested_project_id = str(raw_payload.get("project_id", "")).strip()
+        requested_project_name = str(raw_payload.get("project_name", "")).strip()
+        requested_lyrics_text_raw = raw_payload.get("lyrics_text")
+        requested_lyrics_text = str(requested_lyrics_text_raw).strip() if requested_lyrics_text_raw is not None else None
+
+        initial_job = _default_pipeline_job()
+        initial_job.update(
+            {
+                "job_id": job_id,
+                "status": "running",
+                "started_at": _timestamp(),
+                "updated_at": _timestamp(),
+                "project_id": requested_project_id,
+                "project_name": requested_project_name,
+            }
+        )
+        set_pipeline_job(**initial_job)
+        _update_pipeline_stage(base_paths, initial_job, "download_convert", "running", "Downloading audio from YouTube")
+        job = _read_pipeline_job(base_paths)
+
+        def mark(stage_key: str, status: str, detail: str = "") -> None:
+            nonlocal job
+            job = _update_pipeline_stage(base_paths, job, stage_key, status, detail)
+
+        try:
+            downloaded_audio = _download_youtube_audio(base_paths, youtube_url)
+            original_name = downloaded_audio.name
+            discovered_details: dict[str, str] = {}
+            try:
+                discovered_details = _discover_project_details_from_youtube(youtube_url, original_name)
+            except Exception:
+                discovered_details = {}
+            resolved_lyrics_text = requested_lyrics_text or str(discovered_details.get("lyrics_text", "")).strip()
+            resolved_project_name = (
+                str(discovered_details.get("youtube_project_name", "")).strip()
+                or requested_project_name
+                or _hebrew_dash_title(original_name)
+                or _clean_media_display_name(original_name)
+                or Path(original_name).stem
+            )
+            preferred_source_name = _preferred_source_audio_name(resolved_project_name, original_name)
+            cleaned_audio_path = downloaded_audio.with_name(preferred_source_name)
+            try:
+                if downloaded_audio.resolve() != cleaned_audio_path.resolve():
+                    cleaned_audio_path.parent.mkdir(parents=True, exist_ok=True)
+                    if cleaned_audio_path.exists():
+                        cleaned_audio_path.unlink()
+                    downloaded_audio.replace(cleaned_audio_path)
+                    downloaded_audio = cleaned_audio_path
+            except Exception:
+                pass
+            mark("download_convert", "done", f"Downloaded {cleaned_audio_path.name}")
+
+            available = {project["id"]: project for project in _list_projects(base_paths)}
+            if requested_project_id and requested_project_id not in available:
+                raise FileNotFoundError(f"Unknown project: {requested_project_id}")
+
+            project_key = requested_project_id or _project_storage_key(resolved_project_name, "project")
+            project_paths = _project_paths(base_paths, project_key)
+            mark("stem_separation", "running", "Preparing editor project")
+            state = _attach_audio_to_project(
+                paths=project_paths,
+                project_name=resolved_project_name,
+                audio_source=downloaded_audio,
+                original_name=original_name,
+                lyrics_text=resolved_lyrics_text,
+                preferred_source_name=_preferred_source_audio_name(resolved_project_name, original_name),
+                lyrics_source_url=str(discovered_details.get("lyrics_source_url", "")).strip(),
+            )
+            try:
+                _ensure_project_backing_track(project_paths)
+            except Exception:
+                pass
+            _set_active_project_key(base_paths, project_key)
+            mark("stem_separation", "done", "Editor project ready")
+            set_pipeline_job(
+                status="completed",
+                project_id=project_key,
+                project_name=resolved_project_name,
+                current_stage_key="",
+                current_stage_label="",
+                stage_started_at=None,
+                stage_elapsed_seconds=0.0,
+                updated_at=_timestamp(),
+                error=None,
+                stages=_read_pipeline_job(base_paths).get("stages", _default_pipeline_job()["stages"]),
+            )
+            final_job = _decorate_pipeline_job(_read_pipeline_job(base_paths))
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "status": "completed",
+                "message": "Pipeline completed",
+                "project_id": project_key,
+                "project_name": resolved_project_name,
+                "lyrics_source_url": str(discovered_details.get("lyrics_source_url", "")).strip(),
+                "lyrics_title": str(discovered_details.get("lyrics_title", "")).strip(),
+                "lyrics_found": bool(resolved_lyrics_text),
+                "stages": final_job.get("stages", []),
+            }
+        except Exception as exc:
+            mark("download_convert", "error", str(exc))
+            set_pipeline_job(
+                status="error",
+                updated_at=_timestamp(),
+                error=str(exc),
+                current_stage_key="",
+                current_stage_label="",
+                stage_started_at=None,
+            )
+            raise
+
+    def start_youtube_import_job(raw_payload: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+        youtube_url = str(raw_payload.get("youtube_url", "")).strip()
+        if not youtube_url:
+            return 400, {"error": "youtube_url is required"}
+
+        current_job = _decorate_pipeline_job(_read_pipeline_job(base_paths))
+        if str(current_job.get("status", "")).lower() == "running":
+            app.config["PIPELINE_JOB"] = current_job
+            return 409, {"error": "Another pipeline job is already running"}
+
+        job_id = uuid.uuid4().hex
+        if app.testing:
+            try:
+                return 200, _run_youtube_import_job(raw_payload, job_id)
+            except ValueError as exc:
+                return 400, {"error": str(exc), "job_id": job_id}
+            except RuntimeError as exc:
+                return 409, {"error": str(exc), "job_id": job_id}
+            except Exception as exc:
+                return 500, {"ok": False, "job_id": job_id, "error": str(exc)}
+
+        def worker() -> None:
+            try:
+                _run_youtube_import_job(raw_payload, job_id)
+            except Exception:
+                pass
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        return 202, {"ok": True, "job_id": job_id, "status": "running", "message": "Pipeline started"}
+
+    def start_ai_first_pass_job() -> tuple[int, dict[str, Any]]:
+        project_key = _active_project_key(base_paths) or LEGACY_PROJECT_KEY
+        if not project_key:
+            return 400, {"error": "No project is loaded"}
+
+        worker = _current_pipeline_worker()
+        if worker is not None and worker.get("kind") == "ai_first_pass":
+            process = worker.get("process")
+            if process is not None and hasattr(process, "is_alive") and process.is_alive():
+                current_job = _decorate_pipeline_job(_read_pipeline_job(base_paths))
+                app.config["PIPELINE_JOB"] = current_job
+                return 409, {"error": "Another pipeline job is already running"}
+
+        current_job = _decorate_pipeline_job(_read_pipeline_job(base_paths))
+        if str(current_job.get("status", "")).lower() == "running":
+            app.config["PIPELINE_JOB"] = current_job
+            return 409, {"error": "Another pipeline job is already running"}
+
+        project_paths = _project_paths(base_paths, project_key)
+        state = _state_payload(project_paths)
+        source_name = _guess_input_audio_name(project_paths, state)
+        source_path = project_paths.input_dir / source_name if source_name else project_paths.audio_path
+        if not source_path.exists():
+            return 404, {"error": f"Audio file not found: {source_path}"}
+
+        project_name = _project_display_name(project_paths, project_key)
+        lyrics_text = _project_lyrics_text(project_paths)
+        lyrics_source_url = str(state.get("lyrics_source_url", "")).strip()
+        original_audio_name = str(state.get("original_audio_name", "")).strip() or source_name
+        job_id = uuid.uuid4().hex
+        try:
+            if app.testing:
+                payload = _execute_ai_first_pass_job(
+                    base_paths,
+                    job_id=job_id,
+                    project_key=project_key,
+                    project_name=project_name,
+                    source_path=str(source_path),
+                    source_name=source_name or source_path.name,
+                    original_audio_name=original_audio_name or source_path.name,
+                    lyrics_text=lyrics_text,
+                    lyrics_source_url=lyrics_source_url,
+                )
+                app.config["PIPELINE_JOB"] = _decorate_pipeline_job(_read_pipeline_job(base_paths))
+                _clear_pipeline_worker()
+                return 200, payload
+        except ValueError as exc:
+            return 400, {"error": str(exc), "job_id": job_id}
+        except RuntimeError as exc:
+            return 409, {"error": str(exc), "job_id": job_id}
+        except Exception as exc:
+            return 500, {"ok": False, "job_id": job_id, "error": str(exc)}
+
+        initial_job = _default_pipeline_job()
+        initial_job.update(
+            {
+                "job_id": job_id,
+                "status": "running",
+                "started_at": _timestamp(),
+                "updated_at": _timestamp(),
+                "project_id": project_key,
+                "project_name": project_name,
+            }
+        )
+        set_pipeline_job(**initial_job)
+        _launch_ai_first_pass_worker(
+            job_id,
+            project_key=project_key,
+            project_name=project_name,
+            source_path=source_path,
+            source_name=source_name,
+            original_audio_name=original_audio_name,
+            lyrics_text=lyrics_text,
+            lyrics_source_url=lyrics_source_url,
+        )
+        return 202, {"ok": True, "job_id": job_id, "status": "running", "message": "Pipeline started"}
+
     @app.get("/")
     @app.get("/ui/timing_editor.html")
     def editor_index() -> Response:
@@ -1163,6 +2852,7 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
     @app.get("/api/manifest")
     def api_manifest() -> Response:
         project_paths = current_paths()
+        _ensure_manifest_consistency(project_paths)
         if not project_paths.editor_manifest_path.exists() and not project_paths.manifest_path.exists():
             return _json_response({"error": f"Manifest not found: {project_paths.editor_manifest_path}"}, status=404)
         return _json_response(_read_manifest(project_paths))
@@ -1226,6 +2916,70 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         project_paths = _project_paths(base_paths, project_id)
         return _json_response({"ok": True, "project_id": project_id, "project_name": _project_display_name(project_paths, project_id)})
 
+    @app.post("/api/projects/save")
+    def api_projects_save() -> Response:
+        raw_payload = request.get_json(silent=True)
+        if not isinstance(raw_payload, Mapping):
+            return _json_response({"error": "Request body must be a JSON object"}, status=400)
+
+        current_project_id = str(raw_payload.get("project_id", "")).strip() or (_active_project_key(base_paths) or LEGACY_PROJECT_KEY)
+        if not current_project_id:
+            return _json_response({"error": "No project is loaded"}, status=400)
+
+        project_name = str(raw_payload.get("project_name", "")).strip()
+        project_paths = _project_paths(base_paths, current_project_id)
+        if not project_name:
+            project_name = _project_display_name(project_paths, current_project_id)
+
+        try:
+            overrides_payload = _sanitize_override_body(raw_payload)
+        except ValueError as exc:
+            return _json_response({"error": str(exc)}, status=400)
+
+        try:
+            if current_project_id != LEGACY_PROJECT_KEY:
+                project_id, project_paths = _rename_project(base_paths, current_project_id, project_name)
+            else:
+                project_id = current_project_id
+                _update_project_state_name(project_paths, project_name)
+            _write_json_atomic(project_paths.overrides_path, overrides_payload)
+            if "lyrics_text" in raw_payload:
+                _save_project_lyrics(project_paths, str(raw_payload.get("lyrics_text", "")).strip())
+        except (FileNotFoundError, ValueError) as exc:
+            return _json_response({"error": str(exc)}, status=400)
+
+        _set_active_project_key(base_paths, project_id)
+        return _json_response(
+            {
+                "ok": True,
+                "project_id": project_id,
+                "project_name": _project_display_name(project_paths, project_id),
+                "overrides": overrides_payload,
+            }
+        )
+
+    @app.post("/api/projects/delete")
+    def api_projects_delete() -> Response:
+        raw_payload = request.get_json(silent=True)
+        if not isinstance(raw_payload, Mapping):
+            return _json_response({"error": "Request body must be a JSON object"}, status=400)
+
+        project_id = str(raw_payload.get("project_id", "")).strip() or (_active_project_key(base_paths) or "")
+        try:
+            next_project_id = _delete_project(base_paths, project_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return _json_response({"error": str(exc)}, status=400)
+
+        next_project_paths = _project_paths(base_paths, next_project_id) if next_project_id else base_paths
+        return _json_response(
+            {
+                "ok": True,
+                "deleted_project_id": project_id,
+                "current_project_id": next_project_id,
+                "current_project_name": _project_display_name(next_project_paths, next_project_id) if next_project_id else "",
+            }
+        )
+
     @app.post("/api/projects/create")
     def api_projects_create() -> Response:
         raw_payload = request.get_json(silent=True)
@@ -1252,10 +3006,57 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             }
         )
 
+    @app.post("/api/projects/attach-audio")
+    def api_projects_attach_audio() -> Response:
+        project_id = str(request.form.get("project_id", "")).strip()
+        if not project_id:
+            return _json_response({"error": "project_id is required"}, status=400)
+
+        available = {project["id"]: project for project in _list_projects(base_paths)}
+        if project_id not in available:
+            return _json_response({"error": f"Unknown project: {project_id}"}, status=404)
+
+        audio_file = request.files.get("audio_file")
+        if audio_file is None or not audio_file.filename:
+            return _json_response({"error": "audio_file is required"}, status=400)
+
+        lyrics_text_raw = request.form.get("lyrics_text")
+        lyrics_text = str(lyrics_text_raw).strip() if lyrics_text_raw is not None else None
+        lyrics_file = request.files.get("lyrics_file")
+        if lyrics_file is not None and lyrics_file.filename:
+            lyrics_text = lyrics_file.read().decode("utf-8", errors="replace").strip()
+
+        project_paths = _project_paths(base_paths, project_id)
+        source_name = _sanitize_filename(audio_file.filename, "manual_input.mp3")
+        source_path = project_paths.input_dir / source_name
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        audio_file.save(str(source_path))
+
+        state = _attach_audio_to_project(
+            paths=project_paths,
+            project_name=_project_display_name(project_paths, project_id),
+            audio_source=source_path,
+            original_name=audio_file.filename,
+            lyrics_text=lyrics_text,
+        )
+        _set_active_project_key(base_paths, project_id)
+        return _json_response(
+            {
+                "ok": True,
+                "project_id": project_id,
+                "project_name": _project_display_name(project_paths, project_id),
+                "state": state,
+                "manifest_path": str(project_paths.editor_manifest_path),
+                "audio_path": str(project_paths.audio_path),
+                "overrides_path": str(project_paths.overrides_path),
+            }
+        )
+
     @app.get("/api/session")
     def api_session() -> Response:
         project_key = _active_project_key(base_paths) or LEGACY_PROJECT_KEY
         project_paths = _project_paths(base_paths, project_key)
+        _ensure_manifest_consistency(project_paths)
         state = {}
         if project_paths.state_path.exists():
             try:
@@ -1280,12 +3081,72 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             "project_id": project_key,
             "project_name": _project_display_name(project_paths, project_key),
             "source_name": source_name,
+            "has_audio": project_paths.audio_path.exists(),
             "original_audio_name": str(state.get("original_audio_name", "")).strip(),
             "lyrics_text": lyrics_text,
+            "lyrics_source_url": str(state.get("lyrics_source_url", "")).strip(),
             "output_video_name": _manual_output_video_name(project_paths),
             "output_video_path": str(_default_output_video_path(project_paths)),
         }
         return _json_response(payload)
+
+    @app.post("/api/import/youtube")
+    def api_import_youtube() -> Response:
+        raw_payload = request.get_json(silent=True) or {}
+        if not isinstance(raw_payload, Mapping):
+            return _json_response({"error": "Invalid JSON payload"}, status=400)
+        status_code, payload = start_youtube_import_job(raw_payload)
+        return _json_response(payload, status=status_code)
+
+    @app.post("/api/pipeline/first-pass")
+    def api_pipeline_first_pass() -> Response:
+        status_code, payload = start_ai_first_pass_job()
+        return _json_response(payload, status=status_code)
+
+    @app.post("/api/pipeline/stop")
+    def api_pipeline_stop() -> Response:
+        worker = _current_pipeline_worker()
+        stopped = False
+        pid = None
+        if worker is not None:
+            process = worker.get("process")
+            if process is not None and hasattr(process, "pid"):
+                pid = int(getattr(process, "pid") or 0)
+            if process is not None and hasattr(process, "is_alive") and process.is_alive():
+                stopped = True
+                if pid:
+                    _terminate_process_tree(pid)
+                try:
+                    process.join(timeout=2.0)
+                except Exception:
+                    pass
+                if hasattr(process, "close"):
+                    try:
+                        process.close()
+                    except Exception:
+                        pass
+        _clear_pipeline_worker()
+        set_pipeline_job(**_default_pipeline_job())
+        return _json_response({"ok": True, "status": "idle", "stopped": stopped, "pid": pid})
+
+    @app.post("/api/lyrics/import")
+    def api_import_lyrics() -> Response:
+        raw_payload = request.get_json(silent=True) or {}
+        if not isinstance(raw_payload, Mapping):
+            return _json_response({"error": "Invalid JSON payload"}, status=400)
+
+        lyrics_url = str(raw_payload.get("lyrics_url", "")).strip()
+        if not lyrics_url:
+            return _json_response({"error": "lyrics_url is required"}, status=400)
+
+        try:
+            payload = _fetch_shirrim_lyrics(lyrics_url)
+        except ValueError as exc:
+            return _json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return _json_response({"error": str(exc)}, status=502)
+
+        return _json_response({"ok": True, **payload})
 
     @app.post("/api/import")
     def api_import() -> Response:
@@ -1325,6 +3186,52 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
                 "manifest_path": str(project_paths.editor_manifest_path),
                 "audio_path": str(project_paths.audio_path),
                 "overrides_path": str(project_paths.overrides_path),
+            }
+        )
+
+    @app.post("/api/import/audio-auto")
+    def api_import_audio_auto() -> Response:
+        audio_file = request.files.get("audio_file")
+        if audio_file is None or not audio_file.filename:
+            return _json_response({"error": "audio_file is required"}, status=400)
+
+        original_audio_name = audio_file.filename
+        file_stem = Path(original_audio_name).stem.strip()
+        project_name = file_stem or "Project"
+        project_key = _project_storage_key(project_name, "project")
+        project_paths = _project_paths(base_paths, project_key)
+        _set_active_project_key(base_paths, project_key)
+
+        source_name = _sanitize_filename(original_audio_name, "manual_input.mp3")
+        source_path = project_paths.input_dir / source_name
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        audio_file.save(str(source_path))
+
+        details = _discover_project_details_from_audio_filename(original_audio_name)
+        lyrics_text = str(details.get("lyrics_text", "")).strip()
+        lyrics_source_url = str(details.get("lyrics_source_url", "")).strip()
+
+        state = _write_manual_project(
+            paths=project_paths,
+            audio_source=source_path,
+            lyrics_text=lyrics_text,
+            config_path=project_paths.config_path,
+            original_name=original_audio_name,
+            project_name=project_name,
+            lyrics_source_url=lyrics_source_url,
+        )
+        return _json_response(
+            {
+                "ok": True,
+                "project_id": project_key,
+                "project_name": project_name,
+                "state": state,
+                "manifest_path": str(project_paths.editor_manifest_path),
+                "audio_path": str(project_paths.audio_path),
+                "overrides_path": str(project_paths.overrides_path),
+                "lyrics_source_url": lyrics_source_url,
+                "lyrics_title": str(details.get("lyrics_title", "")).strip(),
+                "lyrics_found": bool(lyrics_text),
             }
         )
 
@@ -1392,6 +3299,12 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             fallback_output = _default_output_video_path(project_paths)
             if fallback_output.exists():
                 job["output_video"] = str(fallback_output)
+        return _json_response({"ok": True, **job})
+
+    @app.get("/api/pipeline/status")
+    def api_pipeline_status() -> Response:
+        _current_pipeline_worker()
+        job = _decorate_pipeline_job(_read_pipeline_job(base_paths))
         return _json_response({"ok": True, **job})
 
     @app.post("/api/output/open")
