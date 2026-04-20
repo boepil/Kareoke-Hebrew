@@ -1499,13 +1499,7 @@
       state.zoomSeconds = zoom;
       const currentTime = clamp(ui.audio.currentTime || 0, 0, duration);
       let start = currentTime - zoom / 2;
-      if (state.wordDrag) {
-        const draggedWord = state.resolvedWords[state.wordDrag.wordIndex];
-        if (draggedWord && Number.isFinite(draggedWord.start)) {
-          const anchorRatio = clamp(state.wordDrag.anchorPercent / 100, 0, 1);
-          start = draggedWord.start - zoom * anchorRatio;
-        }
-      }
+      // Panning during drag is removed to prevent layout scrambling
       state.displayWindow = { start, end: start + zoom };
       if (ui.zoomLabel) {
         ui.zoomLabel.textContent = `Zoom ${zoom.toFixed(1)}s`;
@@ -1911,9 +1905,7 @@
         if (state.wordDrag && state.wordDrag.wordIndex === word.index) {
           element.classList.add("dragging");
         }
-        const leftPercent = state.wordDrag && state.wordDrag.wordIndex === word.index
-          ? state.wordDrag.anchorPercent
-          : timeToPercent(word.displayStart);
+        const leftPercent = timeToPercent(word.displayStart);
         element.style.left = `${leftPercent}%`;
         element.textContent = word.text;
         element.dataset.wordId = word.id;
