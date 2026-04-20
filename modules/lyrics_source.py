@@ -1,8 +1,5 @@
 """Import and clean Hebrew lyrics from a source URL or local HTML/text file.
 
-The primary use case is Shironet URL import. The importer is intentionally
-defensive: it can clean raw HTML exports, local HTML files, or plain text, and
-it raises a clear error if the remote site blocks direct HTTP access.
 """
 
 from __future__ import annotations
@@ -192,11 +189,69 @@ def import_lyrics(
     return result
 
 
+def search_and_fetch_lyrics(
+    song: str,
+    artist: str = "",
+    config: str | Path | Mapping[str, Any] | None = None,
+) -> LyricsImportResult:
+    """Search shirrim.com by song + artist name and return cleaned lyrics."""
+    from timing_editor import (
+        _search_shirrim_results,
+        _search_shirrim_artist_page,
+        _fetch_shirrim_lyrics,
+        _normalized_song_match_score,
+        _hebrew_only_text,
+        _normalize_lookup_text,
+    )
+
+    song_query = _hebrew_only_text(song) or _normalize_lookup_text(song) or song
+    artist_filter = _hebrew_only_text(artist) or _normalize_lookup_text(artist) or artist
+
+    scored: list[tuple[int, dict[str, str]]] = []
+
+    if artist:
+        for result in _search_shirrim_artist_page(artist, song):
+            score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+            if score > 0:
+                scored.append((score, result))
+
+    if not scored:
+        for query in [f"{song_query} {artist_filter}".strip(), song_query]:
+            if not query:
+                continue
+            for result in _search_shirrim_results(query):
+                score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+                if score > 0:
+                    scored.append((score, result))
+            if scored:
+                break
+
+    if not scored:
+        raise ValueError(f"No lyrics found on shirrim.com for: {song} {artist}".strip())
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best = scored[0][1]
+    payload = _fetch_shirrim_lyrics(best["url"])
+
+    text = str(payload.get("lyrics", "")).strip()
+    if not text:
+        raise ValueError(f"Empty lyrics returned from: {best['url']}")
+
+    return LyricsImportResult(
+        source=str(payload.get("source_url", best["url"])),
+        provider="shirrim",
+        text=text,
+        line_count=len(text.splitlines()),
+    )
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Import and clean Hebrew lyrics from a URL or local file.",
     )
-    parser.add_argument("source", help="Lyrics URL or local HTML/text file")
+    parser.add_argument("source", nargs="?", default="", help="Lyrics URL or local HTML/text file")
+    parser.add_argument("--song", default="", help="Song name to search on shirrim.com")
+    parser.add_argument("--artist", default="", help="Artist name to narrow search")
     parser.add_argument(
         "--config",
         default="config.yaml",
@@ -208,6 +263,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = _build_arg_parser()
     args = parser.parse_args()
+    if args.song:
+        result = search_and_fetch_lyrics(args.song, args.artist)
+        print(result.text)
+        return 0
+    if not args.source:
+        parser.print_help()
+        return 1
     import_lyrics(args.source, args.config)
     return 0
 

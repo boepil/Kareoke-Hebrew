@@ -1,6 +1,7 @@
 input/
 output/
 temp/
+data/
 logs/
 
 .pytest_cache/
@@ -15,3 +16,13 @@ env/
 
 .DS_Store
 Thumbs.db
+
+# Project-specific ignores
+*.mp4
+temp_fix_*.py
+diagnose_*.py
+fix_tests_*.py
+test_results*.txt
+migrate_*.py
+*.tmp
+requirements-autosync.txt

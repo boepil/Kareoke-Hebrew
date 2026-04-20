@@ -76,15 +76,15 @@ def _artifact_paths(config: Mapping[str, Any]) -> dict[str, str]:
     temp_dir = Path(paths["temp_dir"])
     output_dir = Path(paths["output_dir"])
     return {
-        "audio_wav": str(temp_dir / "audio.wav"),
-        "vocals_wav": str(temp_dir / "vocals.wav"),
-        "no_vocals_wav": str(temp_dir / "no_vocals.wav"),
-        "lyrics_text": str(temp_dir / str(lyrics.get("output_text_name", "lyrics.txt"))),
-        "lyrics_json": str(temp_dir / str(lyrics.get("output_json_name", "lyrics.json"))),
-        "transcript_json": str(temp_dir / "transcript.json"),
-        "transcript_text": str(temp_dir / "transcript.txt"),
-        "aligned_json": str(temp_dir / "aligned.json"),
-        "subtitles_ass": str(temp_dir / "subtitles.ass"),
+        "audio_wav": str(temp_dir / "audio" / "audio.wav"),
+        "vocals_wav": str(temp_dir / "audio" / "vocals.wav"),
+        "no_vocals_wav": str(temp_dir / "audio" / "no_vocals.wav"),
+        "lyrics_text": str(temp_dir / "transcripts" / str(lyrics.get("output_text_name", "lyrics.txt"))),
+        "lyrics_json": str(temp_dir / "transcripts" / str(lyrics.get("output_json_name", "lyrics.json"))),
+        "transcript_json": str(temp_dir / "transcripts" / "transcript.json"),
+        "transcript_text": str(temp_dir / "transcripts" / "transcript.txt"),
+        "aligned_json": str(temp_dir / "audio" / "aligned.json"),
+        "subtitles_ass": str(temp_dir / "subtitles" / "subtitles.ass"),
         "output_video": str(output_dir / str(renderer.get("output_video_name", "karaoke.mp4"))),
     }
 

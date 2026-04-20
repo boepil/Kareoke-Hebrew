@@ -255,20 +255,23 @@ def _load_image_manifest(manifest_path: Path) -> list[dict[str, Any]]:
     for event in events:
         if not isinstance(event, Mapping):
             continue
+            
+        event_dict = {
+            "start": float(event.get("start", 0)),
+            "end": float(event.get("end", 0)),
+            "t_standby": float(event.get("t_standby", -1.0)),
+            "fade_in_seconds": max(float(event.get("fade_in_seconds", 0.0) or 0.0), 0.0),
+            "fade_out_seconds": max(float(event.get("fade_out_seconds", 0.0) or 0.0), 0.0),
+            "kind": str(event.get("kind", "")).strip(),
+            "text": str(event.get("text", "")).strip(),
+            "concat_path": str(event.get("concat_path", "")),
+        }
+        
         image_path = Path(str(event.get("image", "")))
-        if not image_path.exists():
-            continue
-        normalized_events.append(
-            {
-                "start": float(event["start"]),
-                "end": float(event["end"]),
-                "image": image_path,
-                "fade_in_seconds": max(float(event.get("fade_in_seconds", 0.0) or 0.0), 0.0),
-                "fade_out_seconds": max(float(event.get("fade_out_seconds", 0.0) or 0.0), 0.0),
-                "kind": str(event.get("kind", "")).strip(),
-                "text": str(event.get("text", "")).strip(),
-            }
-        )
+        if image_path.exists():
+            event_dict["image"] = image_path
+            
+        normalized_events.append(event_dict)
     return normalized_events
 
 
@@ -359,37 +362,129 @@ def _render_intro_card(
 def _build_image_overlay_filter_script(
     events: list[dict[str, Any]],
     script_path: Path,
-    y_expression: str,
+    y_center_expr: str,
     fade_seconds: float = 0.5,
 ) -> tuple[list[str], str]:
     input_args: list[str] = []
     filter_lines: list[str] = []
     previous_label = "[0:v]"
 
+    y_bottom_expr = f"({y_center_expr})+h+28"
+    y_top_expr = f"({y_center_expr})-h-28"
+    slide_dur = 0.4
+    
+    # Pass 1: compute kinematics logically matching the UI DOM.
+    line_kinematics = []
+    previous_end = -1.0
+    previous_promote = -1.0
+    
+    for event in events:
+        if event["kind"] != "line_sequence":
+            continue
+            
+        start_t = float(event["start"])
+        end_t = float(event["end"])
+        
+        t_promote = float(event.get("t_promote", -1.0))
+        t_reveal = float(event.get("t_reveal", -1.0))
+        
+        if t_promote < 0:
+            t_promote = max(previous_end + 0.2, start_t - 0.5) if previous_end >= 0 else max(0.0, start_t - 0.5)
+            t_promote = min(t_promote, start_t)
+        
+        if t_reveal < 0:
+            t_reveal = previous_promote if previous_promote >= 0 else max(0.0, t_promote - 1.5)
+            t_reveal = min(t_reveal, t_promote - 0.1)
+            
+        previous_end = end_t
+        previous_promote = t_promote
+        
+        line_kinematics.append({
+            "event": event,
+            "t_reveal": max(0.0, float(t_reveal)),
+            "t_promote": max(0.0, float(t_promote)),
+            "start": max(0.0, start_t),
+            "end": max(0.0, end_t)
+        })
+
+    # Pass 2: calculate t_done and build filters!
+    index_offset = 0
     for index, event in enumerate(events, start=2):
-        image_path = Path(event["image"]).resolve()
-        input_args.extend(["-loop", "1", "-i", str(image_path)])
-        next_label = f"[v{index}]"
-        start = float(event["start"])
-        end = float(event["end"])
-        overlay_start = max(0.0, start)
-        event_fade_seconds = max(float(event.get("fade_in_seconds", fade_seconds) or 0.0), 0.0)
-        event_fade_out_seconds = max(float(event.get("fade_out_seconds", 0.0) or 0.0), 0.0)
-        fade_label = f"[f{index}]"
-        fade_filters: list[str] = []
-        if event_fade_seconds > 0:
-            fade_filters.append(f"fade=t=in:st={overlay_start:.3f}:d={event_fade_seconds:.3f}:alpha=1")
-        if event_fade_out_seconds > 0:
-            fade_out_start = max(end - event_fade_out_seconds, overlay_start)
-            fade_filters.append(f"fade=t=out:st={fade_out_start:.3f}:d={event_fade_out_seconds:.3f}:alpha=1")
-        fade_suffix = f",{','.join(fade_filters)}" if fade_filters else ""
-        filter_lines.append(
-            f"[{index}:v]format=rgba,trim=end={end:.3f},setpts=PTS-STARTPTS+{overlay_start:.3f}/TB{fade_suffix}{fade_label}"
-        )
-        filter_lines.append(
-            f"{previous_label}{fade_label}overlay=x=(W-w)/2:y={y_expression}:enable='between(t,{overlay_start:.3f},{end:.3f})'{next_label}"
-        )
-        previous_label = next_label
+        if event["kind"] == "line_sequence":
+            kin_index = index_offset
+            index_offset += 1
+            
+            kin = line_kinematics[kin_index]
+            t_reveal = kin["t_reveal"]
+            t_promote = kin["t_promote"]
+            t_active = kin["start"]
+            
+            # The line finishes precisely when the next line claims the center stage!
+            if kin_index + 1 < len(line_kinematics):
+                t_done = line_kinematics[kin_index + 1]["t_promote"]
+            else:
+                t_done = kin["end"] + 1.0  # Safe fade out for final line
+                
+            concat_path = Path(event["concat_path"]).resolve()
+            input_args.extend(["-f", "concat", "-safe", "0", "-i", str(concat_path)])
+            
+            next_label = f"[v{index}]"
+            
+            y_hidden_bottom = f"({y_center_expr})+h+55"
+            slide_standby = f"clip((t-{t_reveal:.3f})/{slide_dur:.3f},0,1)"
+            slide_active = f"clip((t-{t_promote:.3f})/{slide_dur:.3f},0,1)"
+            slide_done = f"clip((t-{t_done:.3f})/{slide_dur:.3f},0,1)"
+            y_expr = f"{y_hidden_bottom}-({y_hidden_bottom}-({y_bottom_expr}))*{slide_standby}-(({y_bottom_expr})-({y_center_expr}))*{slide_active}-(({y_center_expr})-({y_top_expr}))*{slide_done}"
+            zoom_expr = f"if(lt(t,{t_promote:.3f}),0.85,if(lt(t,{t_promote+slide_dur:.3f}),0.85+0.15*((t-{t_promote:.3f})/{slide_dur:.3f}),1.0))"
+            
+            # FADE OUT applied BEFORE split ensures raw alpha dissolves correctly!
+            # fps=25 ensures the sparse concat stream is densified so fade executes monotonically over time!
+            filter_lines.append(
+                f"[{index}:v]format=rgba,fps=25,setpts=PTS-STARTPTS+{t_reveal:.3f}/TB,tpad=stop_mode=clone:stop_duration=120,"
+                f"fade=t=out:st={t_done:.3f}:d={slide_dur}:alpha=1,split=2[stb_{index}][act_{index}]"
+            )
+            filter_lines.append(
+                f"[stb_{index}]colorchannelmixer=aa=0.34,fade=t=in:st={t_reveal:.3f}:d={slide_dur}:alpha=1[stb_{index}_f]"
+            )
+            filter_lines.append(
+                f"[act_{index}]fade=t=in:st={t_promote:.3f}:d={slide_dur}:alpha=1[act_{index}_f]"
+            )
+            filter_lines.append(
+                f"[stb_{index}_f][act_{index}_f]overlay=0:0[comp_{index}]"
+            )
+            filter_lines.append(
+                f"[comp_{index}]scale=w='iw*({zoom_expr})':h='ih*({zoom_expr})':eval=frame[ready_{index}]"
+            )
+            filter_lines.append(
+                f"{previous_label}[ready_{index}]overlay=x=(W-w)/2:y='{y_expr}':enable='between(t,{t_reveal:.3f},{t_done+1.5:.3f})'{next_label}"
+            )
+            previous_label = next_label
+            
+        else:
+            image_path = Path(event.get("image", "")).resolve()
+            input_args.extend(["-loop", "1", "-i", str(image_path)])
+            next_label = f"[v{index}]"
+            start = float(event["start"])
+            end = float(event["end"])
+            overlay_start = max(0.0, start)
+            event_fade_seconds = max(float(event.get("fade_in_seconds", fade_seconds) or 0.0), 0.0)
+            event_fade_out_seconds = max(float(event.get("fade_out_seconds", 0.0) or 0.0), 0.0)
+            fade_label = f"[f{index}]"
+            fade_filters: list[str] = []
+            if event_fade_seconds > 0:
+                fade_filters.append(f"fade=t=in:st={overlay_start:.3f}:d={event_fade_seconds:.3f}:alpha=1")
+            if event_fade_out_seconds > 0:
+                fade_out_start = max(end - event_fade_out_seconds, overlay_start)
+                fade_filters.append(f"fade=t=out:st={fade_out_start:.3f}:d={event_fade_out_seconds:.3f}:alpha=1")
+            fade_suffix = f",{','.join(fade_filters)}" if fade_filters else ""
+            y_overlay_expr = f"({y_center_expr})-80" if event.get("kind") == "countdown" else y_center_expr
+            filter_lines.append(
+                f"[{index}:v]format=rgba,trim=end={end:.3f},setpts=PTS-STARTPTS+{overlay_start:.3f}/TB{fade_suffix}{fade_label}"
+            )
+            filter_lines.append(
+                f"{previous_label}{fade_label}overlay=x=(W-w)/2:y={y_overlay_expr}:enable='between(t,{overlay_start:.3f},{end:.3f})'{next_label}"
+            )
+            previous_label = next_label
 
     filter_lines.append(f"{previous_label}copy[vout]")
     script_path.write_text(";\n".join(filter_lines), encoding="utf-8")

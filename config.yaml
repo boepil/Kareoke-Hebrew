@@ -1,7 +1,7 @@
 paths:
-  input_dir: input
-  output_dir: output
-  temp_dir: temp
+  input_dir: data/input
+  output_dir: data/output
+  temp_dir: data
   logs_dir: logs
 
 audio_extractor:
@@ -19,9 +19,9 @@ separator:
   shifts: 0
 
 transcriber:
-  provider: gemma
+  provider: whisper
   fallback_to_whisper: true
-  model_name: large-v3
+  model_name: ivrit-ai/whisper-large-v3-turbo-ct2
   gemma_model_id: google/gemma-3n-E4B-it
   gemma_device_map: auto
   gemma_torch_dtype: auto
@@ -60,6 +60,9 @@ subtitle_builder:
   isolated_anchor_gap_seconds: 10.0
   isolated_anchor_duration_seconds: 2.0
   sentence_preroll_seconds: 1.0
+  countdown_lead_seconds: 3.0
+  countdown_pause_trigger_seconds: 4.0
+  countdown_min_visible_seconds: 0.05
 
 renderer:
   ffmpeg_path: ffmpeg
@@ -83,16 +86,16 @@ aligner:
 
 autosync:
   enabled: true
-  provider: gemma
-  audio_model_id: google/gemma-3n-E4B-it
+  provider: whisper
+  audio_model_id: ivrit-ai/whisper-large-v3-turbo-ct2
   chunk_seconds: 24
   chunk_overlap_seconds: 1.0
   language: he
   fallback_to_whisper: true
   correction_enabled: true
   correction_endpoint_url: http://127.0.0.1:1234/v1/chat/completions
-  correction_model_id: qwen3-4b
-  correction_timeout_seconds: 90
+  correction_model_id: aya-expanse-8b
+  correction_timeout_seconds: 180
 
 lyrics_source:
   enabled: false

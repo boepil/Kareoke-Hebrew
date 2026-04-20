@@ -21,9 +21,17 @@ from timing_editor import (
 
 def _write_config(path: Path, temp_dir: Path, output_dir: Path, logs_dir: Path) -> None:
     path.write_text(
-        f"""paths:\n  input_dir: {temp_dir.parent / 'input'}\n  output_dir: {output_dir}\n  temp_dir: {temp_dir}\n  logs_dir: {logs_dir}\n\nsubtitle_builder:\n  manifest_name: subtitles_manifest.json\n  timing_overrides_name: timing_overrides.json\n""",
+        f"""paths:\n  input_dir: {temp_dir.parent / 'input'}\n  output_dir: {output_dir}\n  temp_dir: {temp_dir}\n  logs_dir: {logs_dir}\n\nsubtitle_builder:\n  manifest_name: subtitles_manifest.json\n  timing_overrides_name: timing_overrides.json
+""",
         encoding="utf-8",
     )
+
+
+def _ensure_test_subdirs(base: Path) -> None:
+    (base / "subtitles").mkdir(parents=True, exist_ok=True)
+    (base / "state").mkdir(parents=True, exist_ok=True)
+    (base / "audio").mkdir(parents=True, exist_ok=True)
+    (base / "transcripts").mkdir(parents=True, exist_ok=True)
 
 
 def _write_wav(path: Path, frames: int = 4410) -> None:
@@ -47,11 +55,12 @@ def test_timing_editor_api_round_trip(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
-    manifest_path = temp_dir / "subtitles_manifest.json"
+    manifest_path = temp_dir / "subtitles" / "subtitles_manifest.json"
     manifest_path.write_text(
         json.dumps(
             {
@@ -70,11 +79,11 @@ def test_timing_editor_api_round_trip(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (temp_dir / "timing_overrides.json").write_text(
+    (temp_dir / "state" / "timing_overrides.json").write_text(
         json.dumps({"global_offset": 0.0, "lines": {}, "words": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
-    _write_wav(temp_dir / "audio.wav")
+    _write_wav(temp_dir / "audio" / "audio.wav")
 
     app = create_app(config_path)
     app.testing = True
@@ -119,12 +128,12 @@ def test_timing_editor_api_round_trip(tmp_path: Path) -> None:
     assert saved_payload["lines"]["line_000"]["start"] == 1.25
     assert saved_payload["words"]["word_0001"]["start"] == 1.45
 
-    on_disk = json.loads((temp_dir / "timing_overrides.json").read_text(encoding="utf-8"))
+    on_disk = json.loads((temp_dir / "state" / "timing_overrides.json").read_text(encoding="utf-8"))
     assert on_disk["placed_word_count"] == 2
     assert on_disk["lyrics_text"] == "hello world\nmore words"
     assert on_disk["lines"]["line_000"]["end"] == 2.35
     assert on_disk["words"]["word_0001"]["end"] == 2.05
-    assert (temp_dir / "lyrics.txt").read_text(encoding="utf-8") == "hello world\nmore words"
+    assert (temp_dir / "subtitles" / "lyrics.txt").read_text(encoding="utf-8") == "hello world\nmore words"
 
 
 def test_timing_editor_import_creates_manual_project(tmp_path: Path) -> None:
@@ -136,6 +145,7 @@ def test_timing_editor_import_creates_manual_project(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -149,12 +159,16 @@ def test_timing_editor_import_creates_manual_project(tmp_path: Path) -> None:
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == "song.mp3"
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
     def fake_separate(input_file, config):
+        import pathlib
+        pathlib.Path(input_file).parent.mkdir(parents=True, exist_ok=True)
         vocals_path = Path(input_file).with_name("vocals.wav")
         no_vocals_path = Path(input_file).with_name("no_vocals.wav")
+        vocals_path.parent.mkdir(parents=True, exist_ok=True)
         vocals_path.write_bytes(b"vocals")
         no_vocals_path.write_bytes(b"backing")
         return {"vocals": vocals_path, "no_vocals": no_vocals_path}
@@ -172,7 +186,7 @@ def test_timing_editor_import_creates_manual_project(tmp_path: Path) -> None:
             content_type="multipart/form-data",
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["project_id"] == "song"
@@ -214,6 +228,7 @@ def test_timing_editor_import_preserves_unicode_filename_for_output(tmp_path: Pa
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -229,12 +244,16 @@ def test_timing_editor_import_preserves_unicode_filename_for_output(tmp_path: Pa
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == audio_filename
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
     def fake_separate(input_file, config):
+        import pathlib
+        pathlib.Path(input_file).parent.mkdir(parents=True, exist_ok=True)
         vocals_path = Path(input_file).with_name("vocals.wav")
         no_vocals_path = Path(input_file).with_name("no_vocals.wav")
+        vocals_path.parent.mkdir(parents=True, exist_ok=True)
         vocals_path.write_bytes(b"vocals")
         no_vocals_path.write_bytes(b"backing")
         return {"vocals": vocals_path, "no_vocals": no_vocals_path}
@@ -252,7 +271,7 @@ def test_timing_editor_import_preserves_unicode_filename_for_output(tmp_path: Pa
             content_type="multipart/form-data",
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["project_id"] == project_name
     session_payload = client.get("/api/session").get_json()
@@ -271,11 +290,12 @@ def test_timing_editor_session_falls_back_to_lyrics_file(tmp_path: Path) -> None
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
-    state_path = temp_dir / "state.json"
+    state_path = temp_dir / "state" / "state.json"
     state_path.write_text(
         json.dumps(
             {
@@ -287,7 +307,7 @@ def test_timing_editor_session_falls_back_to_lyrics_file(tmp_path: Path) -> None
         ),
         encoding="utf-8",
     )
-    (temp_dir / "lyrics.txt").write_text("line one\nline two", encoding="utf-8")
+    (temp_dir / "subtitles" / "lyrics.txt").write_text("line one\nline two", encoding="utf-8")
 
     app = create_app(config_path)
     app.testing = True
@@ -306,12 +326,13 @@ def test_timing_editor_session_uses_single_input_filename_when_state_has_old_san
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
     (input_dir / "גזוז - חללית - מוזיקה ישראלית (youtube).mp3").write_bytes(b"fake mp3")
-    (temp_dir / "state.json").write_text(
+    (temp_dir / "state" / "state.json").write_text(
         json.dumps(
             {
                 "mode": "manual",
@@ -341,11 +362,12 @@ def test_timing_editor_pipeline_status_endpoint_reads_pipeline_state(tmp_path: P
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
-    (temp_dir / "pipeline_state.json").write_text(
+    (temp_dir / "state" / "pipeline_state.json").write_text(
         json.dumps(
             {
                 "version": 1,
@@ -444,11 +466,12 @@ def test_timing_editor_export_mp4_endpoint(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
-    manifest_path = temp_dir / "subtitles_manifest.json"
+    manifest_path = temp_dir / "subtitles" / "subtitles_manifest.json"
     manifest_path.write_text(
         json.dumps(
             {
@@ -464,23 +487,24 @@ def test_timing_editor_export_mp4_endpoint(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (temp_dir / "timing_overrides.json").write_text(
+    (temp_dir / "state" / "timing_overrides.json").write_text(
         json.dumps({"global_offset": 0.0, "placed_word_count": 1, "lines": {}, "words": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
-    _write_wav(temp_dir / "audio.wav")
+    _write_wav(temp_dir / "audio" / "audio.wav")
 
     app = create_app(config_path)
     app.testing = True
     client = app.test_client()
 
-    ass_path = temp_dir / "subtitles.ass"
+    ass_path = temp_dir / "subtitles" / "subtitles.ass"
+    ass_path.parent.mkdir(parents=True, exist_ok=True)
     ass_path.write_text("dummy", encoding="utf-8")
-    (temp_dir / "no_vocals.wav").write_bytes(b"backing")
+    (temp_dir / "audio" / "no_vocals.wav").write_bytes(b"backing")
     output_video = output_dir / "karaoke.mp4"
 
     def fake_render(audio_path, subtitles_path, render_config, progress_callback=None):
-        assert Path(audio_path) == temp_dir / "no_vocals.wav"
+        assert Path(audio_path) == temp_dir / "audio" / "no_vocals.wav"
         assert subtitles_path == ass_path
         return output_video
 
@@ -490,7 +514,7 @@ def test_timing_editor_export_mp4_endpoint(tmp_path: Path) -> None:
     ):
         response = client.post("/api/export/mp4")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["subtitles_ass"] == str(ass_path)
@@ -506,11 +530,12 @@ def test_build_manual_subtitles_clamps_previous_line_before_next_line(tmp_path: 
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
-    (temp_dir / "timing_editor_manifest.json").write_text(
+    (temp_dir / "subtitles" / "timing_editor_manifest.json").write_text(
         json.dumps(
             {
                 "lines": [
@@ -528,16 +553,16 @@ def test_build_manual_subtitles_clamps_previous_line_before_next_line(tmp_path: 
         ),
         encoding="utf-8",
     )
-    (temp_dir / "timing_overrides.json").write_text(
+    (temp_dir / "state" / "timing_overrides.json").write_text(
         json.dumps({"version": 1, "placed_word_count": 4, "lines": {}, "words": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
 
     paths = _editor_paths(config_path)
     ass_path = _build_manual_subtitles(paths, {"paths": {"temp_dir": str(temp_dir)}, "subtitle_builder": {"manifest_name": "subtitles_manifest.json", "output_ass_name": "subtitles.ass", "assets_dir_name": "subtitle_assets", "timing_overrides_name": "timing_overrides.json"}})
-    assert ass_path == temp_dir / "subtitles.ass"
+    assert ass_path == temp_dir / "subtitles" / "subtitles.ass"
 
-    manifest = json.loads((temp_dir / "subtitles_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((temp_dir / "subtitles" / "subtitles_manifest.json").read_text(encoding="utf-8"))
     assert manifest["lines"][0]["end"] < manifest["lines"][1]["start"]
 
 
@@ -568,11 +593,12 @@ def test_build_manual_subtitles_skips_lines_after_reset_later(tmp_path: Path) ->
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
-    (temp_dir / "timing_editor_manifest.json").write_text(
+    (temp_dir / "subtitles" / "timing_editor_manifest.json").write_text(
         json.dumps(
             {
                 "lines": [
@@ -590,7 +616,7 @@ def test_build_manual_subtitles_skips_lines_after_reset_later(tmp_path: Path) ->
         ),
         encoding="utf-8",
     )
-    (temp_dir / "timing_overrides.json").write_text(
+    (temp_dir / "state" / "timing_overrides.json").write_text(
         json.dumps({"version": 1, "placed_word_count": 2, "lines": {}, "words": {}}, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -609,7 +635,7 @@ def test_build_manual_subtitles_skips_lines_after_reset_later(tmp_path: Path) ->
         },
     )
 
-    manifest = json.loads((temp_dir / "subtitles_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((temp_dir / "subtitles" / "subtitles_manifest.json").read_text(encoding="utf-8"))
     assert len(manifest["lines"]) == 1
     assert manifest["lines"][0]["text"] == "hello world"
 
@@ -623,6 +649,7 @@ def test_timing_editor_open_output_endpoint(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -637,7 +664,7 @@ def test_timing_editor_open_output_endpoint(tmp_path: Path) -> None:
     with patch.object(os, "startfile", autospec=True) as mock_startfile:
         response = client.post("/api/output/open")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["output_video"] == str(output_video)
@@ -653,13 +680,15 @@ def test_timing_editor_projects_list_and_select_named_project(tmp_path: Path) ->
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
     project_dir = temp_dir / "projects" / "My Song"
-    project_dir.mkdir(parents=True)
-    (project_dir / "state.json").write_text(
+    project_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_test_subdirs(project_dir)
+    (project_dir / "state" / "state.json").write_text(
         json.dumps(
             {
                 "mode": "manual",
@@ -697,6 +726,7 @@ def test_timing_editor_create_empty_named_project(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -710,7 +740,7 @@ def test_timing_editor_create_empty_named_project(tmp_path: Path) -> None:
         json={"project_name": "Empty Project", "lyrics_text": "hello\nworld"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["project_id"] == "Empty Project"
 
@@ -733,6 +763,7 @@ def test_timing_editor_save_project_renames_project(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -782,6 +813,7 @@ def test_timing_editor_delete_project_removes_project(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -815,12 +847,14 @@ def test_timing_editor_session_repairs_stale_manifest_when_unplaced(tmp_path: Pa
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
 
     project_paths = _project_paths(_editor_paths(config_path), "Repair Me")
-    project_paths.temp_dir.mkdir(parents=True)
+    project_paths.temp_dir.mkdir(parents=True, exist_ok=True)
+    project_paths.editor_manifest_path.parent.mkdir(parents=True, exist_ok=True)
     project_paths.editor_manifest_path.write_text(
         json.dumps(
             {
@@ -834,6 +868,7 @@ def test_timing_editor_session_repairs_stale_manifest_when_unplaced(tmp_path: Pa
         ),
         encoding="utf-8",
     )
+    project_paths.overrides_path.parent.mkdir(parents=True, exist_ok=True)
     project_paths.overrides_path.write_text(
         json.dumps(
             {"version": 1, "placed_word_count": 0, "lyrics_text": "new words here", "lines": {}, "words": {}},
@@ -841,6 +876,7 @@ def test_timing_editor_session_repairs_stale_manifest_when_unplaced(tmp_path: Pa
         ),
         encoding="utf-8",
     )
+    project_paths.state_path.parent.mkdir(parents=True, exist_ok=True)
     project_paths.state_path.write_text(
         json.dumps(
             {"mode": "manual", "status": "empty", "project_name": "Repair Me", "lyrics_text": "new words here", "line_count": 1, "word_count": 2},
@@ -848,7 +884,8 @@ def test_timing_editor_session_repairs_stale_manifest_when_unplaced(tmp_path: Pa
         ),
         encoding="utf-8",
     )
-    (temp_dir / "current_project.txt").write_text("Repair Me", encoding="utf-8")
+    (tmp_path / "data" / ".current_project").parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "data" / ".current_project").write_text("Repair Me", encoding="utf-8")
 
     app = create_app(config_path)
     app.testing = True
@@ -869,6 +906,7 @@ def test_timing_editor_attach_audio_to_existing_project(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -887,6 +925,9 @@ def test_timing_editor_attach_audio_to_existing_project(tmp_path: Path) -> None:
     audio_file.write_bytes(b"fake mp3")
 
     def fake_extract(input_file, output_file, config):
+        import pathlib
+        pathlib.Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -917,6 +958,7 @@ def test_timing_editor_import_youtube_creates_manual_project(tmp_path: Path) -> 
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -934,6 +976,7 @@ def test_timing_editor_import_youtube_creates_manual_project(tmp_path: Path) -> 
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == "Downloaded Song.mp3"
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -950,7 +993,7 @@ def test_timing_editor_import_youtube_creates_manual_project(tmp_path: Path) -> 
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["project_id"] == "Downloaded Song"
@@ -971,6 +1014,7 @@ def test_timing_editor_import_youtube_attaches_to_existing_project(tmp_path: Pat
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -994,6 +1038,7 @@ def test_timing_editor_import_youtube_attaches_to_existing_project(tmp_path: Pat
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == "YouTube Song.mp3"
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -1009,7 +1054,7 @@ def test_timing_editor_import_youtube_attaches_to_existing_project(tmp_path: Pat
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["project_id"] == "YouTube Attach"
@@ -1029,6 +1074,7 @@ def test_timing_editor_import_youtube_auto_finds_lyrics_and_renames_project(tmp_
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -1046,6 +1092,7 @@ def test_timing_editor_import_youtube_auto_finds_lyrics_and_renames_project(tmp_
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == "\u05d0\u05d9\u05d9\u05dc \u05d2\u05d5\u05dc\u05df - \u05e9\u05dd \u05de\u05d9\u05d5\u05d8\u05d9\u05d5\u05d1.mp3"
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -1064,7 +1111,7 @@ def test_timing_editor_import_youtube_auto_finds_lyrics_and_renames_project(tmp_
             json={"youtube_url": "https://youtube.com/watch?v=auto1"},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["project_id"] == "\u05d0\u05d9\u05d9\u05dc \u05d2\u05d5\u05dc\u05df - \u05e9\u05dd \u05de\u05d9\u05d5\u05d8\u05d9\u05d5\u05d1"
     assert payload["lyrics_source_url"] == "https://shirrim.com/song-lyrics/example/"
@@ -1084,6 +1131,7 @@ def test_timing_editor_import_youtube_attached_project_is_renamed_from_match(tmp
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -1107,6 +1155,7 @@ def test_timing_editor_import_youtube_attached_project_is_renamed_from_match(tmp
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == "\u05e9\u05dd \u05d4\u05e9\u05d9\u05e8 - \u05e9\u05dd \u05d4\u05d6\u05de\u05e8.mp3"
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -1126,7 +1175,7 @@ def test_timing_editor_import_youtube_attached_project_is_renamed_from_match(tmp
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["project_id"] == "Temporary Name"
     assert payload["project_name"] == "\u05e9\u05dd \u05d4\u05e9\u05d9\u05e8 - \u05e9\u05dd \u05d4\u05d6\u05de\u05e8"
@@ -1144,6 +1193,7 @@ def test_timing_editor_import_audio_auto_uses_filename_and_fetches_lyrics(tmp_pa
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -1157,6 +1207,7 @@ def test_timing_editor_import_audio_auto_uses_filename_and_fetches_lyrics(tmp_pa
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == audio_file.name
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -1178,7 +1229,7 @@ def test_timing_editor_import_audio_auto_uses_filename_and_fetches_lyrics(tmp_pa
                 content_type="multipart/form-data",
             )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["project_id"] == "\u05d0\u05d9\u05d9\u05dc \u05d2\u05d5\u05dc\u05df - \u05e1\u05d8\u05dc\u05d5\u05ea"
@@ -1200,6 +1251,7 @@ def test_timing_editor_ai_first_pass_endpoint_runs_on_current_project(tmp_path: 
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -1213,6 +1265,7 @@ def test_timing_editor_ai_first_pass_endpoint_runs_on_current_project(tmp_path: 
 
     def fake_extract(input_file, output_file, config):
         assert Path(input_file).name == audio_file.name
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -1248,7 +1301,7 @@ def test_timing_editor_ai_first_pass_endpoint_runs_on_current_project(tmp_path: 
     with patch("timing_editor.run_first_pass_autosync", side_effect=fake_autosync):
         response = client.post("/api/pipeline/first-pass")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["status"] == "completed"
@@ -1265,6 +1318,7 @@ def test_timing_editor_resets_stale_pipeline_job_and_allows_import(tmp_path: Pat
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -1287,7 +1341,7 @@ def test_timing_editor_resets_stale_pipeline_job_and_allows_import(tmp_path: Pat
             {"key": "stem_separation", "label": "Stem separation", "status": "pending", "detail": "", "started_at": None, "ended_at": None, "elapsed_seconds": 0.0},
         ],
     }
-    (temp_dir / "pipeline_state.json").write_text(json.dumps(stale_job, ensure_ascii=False), encoding="utf-8")
+    (temp_dir / "state" / "pipeline_state.json").write_text(json.dumps(stale_job, ensure_ascii=False), encoding="utf-8")
 
     app = create_app(config_path)
     app.testing = True
@@ -1303,6 +1357,9 @@ def test_timing_editor_resets_stale_pipeline_job_and_allows_import(tmp_path: Pat
         return downloaded_audio
 
     def fake_extract(input_file, output_file, config):
+        import pathlib
+        pathlib.Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         _write_wav(Path(output_file))
         return Path(output_file)
 
@@ -1312,7 +1369,7 @@ def test_timing_editor_resets_stale_pipeline_job_and_allows_import(tmp_path: Pat
     ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
         response = client.post("/api/import/youtube", json={"youtube_url": "https://youtube.com/watch?v=abc"})
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
 
@@ -1326,6 +1383,7 @@ def test_timing_editor_pipeline_stop_terminates_worker_and_resets_state(tmp_path
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -1348,7 +1406,7 @@ def test_timing_editor_pipeline_stop_terminates_worker_and_resets_state(tmp_path
             "stages": _default_pipeline_job()["stages"],
         }
     )
-    (temp_dir / "pipeline_state.json").write_text(json.dumps(running_job, ensure_ascii=False), encoding="utf-8")
+    (temp_dir / "state" / "pipeline_state.json").write_text(json.dumps(running_job, ensure_ascii=False), encoding="utf-8")
     app.config["PIPELINE_JOB"] = running_job
 
     class FakeProcess:
@@ -1375,7 +1433,7 @@ def test_timing_editor_pipeline_stop_terminates_worker_and_resets_state(tmp_path
     with patch("timing_editor._terminate_process_tree") as terminate_tree:
         response = client.post("/api/pipeline/stop")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["status"] == "idle"
@@ -1384,7 +1442,7 @@ def test_timing_editor_pipeline_stop_terminates_worker_and_resets_state(tmp_path
     assert fake_process.joined is True
     assert app.config["PIPELINE_WORKER"] is None
 
-    on_disk = json.loads((temp_dir / "pipeline_state.json").read_text(encoding="utf-8"))
+    on_disk = json.loads((temp_dir / "state" / "pipeline_state.json").read_text(encoding="utf-8"))
     assert on_disk["status"] == "idle"
 
 
@@ -1465,6 +1523,7 @@ def test_timing_editor_imports_lyrics_from_shirrim_url(tmp_path: Path) -> None:
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)
@@ -1486,7 +1545,7 @@ def test_timing_editor_imports_lyrics_from_shirrim_url(tmp_path: Path) -> None:
             json={"lyrics_url": "https://shirrim.com/song-lyrics/example/"},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["lyrics"] == "line one\nline two"
@@ -1536,6 +1595,7 @@ def test_timing_editor_rejects_non_youtube_url_in_youtube_import(tmp_path: Path)
     output_dir.mkdir()
     logs_dir.mkdir()
     input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, temp_dir, output_dir, logs_dir)

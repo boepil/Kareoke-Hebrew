@@ -67,6 +67,14 @@ def _load_gemma_transcriber():
     return transcribe_audio_with_gemma
 
 
+def _is_cuda_available() -> bool:
+    try:
+        import torch  # type: ignore
+    except Exception:
+        return False
+    return bool(torch.cuda.is_available())
+
+
 def build_transcriber_settings(config: Mapping[str, Any]) -> dict[str, Any]:
     """Return the normalized transcriber settings from config."""
     settings = _transcriber_section(config)
@@ -113,36 +121,50 @@ def _transcribe_with_whisper(
     json_path: Path,
     text_path: Path,
 ) -> dict[str, Any]:
-    whisper = _load_whisper_module()
+    from faster_whisper import WhisperModel
     start = time.perf_counter()
     LOGGER.info(
         "transcriber:start provider=whisper input=%s model=%s",
         input_path,
         settings["model_name"],
     )
-
-    model = whisper.load_model(
+    
+    model = WhisperModel(
         settings["model_name"],
         device=settings["device"],
+        compute_type="int8" if settings["device"] == "cpu" else "float16",
     )
-    result = model.transcribe(
+    segments, info = model.transcribe(
         str(input_path),
         language=settings["language"],
         task=settings["task"],
-        fp16=settings["fp16"],
-        verbose=False,
     )
-
+    
+    # Convert segments generator to list
+    segments_list = list(segments)
+    full_text = " ".join([s.text for s in segments_list])
+    
+    # Normalize segments to match the expected format
+    normalized_segments = [
+        {
+            "id": i,
+            "start": s.start,
+            "end": s.end,
+            "text": s.text.strip(),
+        }
+        for i, s in enumerate(segments_list)
+    ]
+    
     transcript = {
         "source_file": str(input_path),
         "provider": "whisper",
         "model_name": settings["model_name"],
-        "language": result.get("language", settings["language"]),
-        "text": result.get("text", ""),
-        "segments": result.get("segments", []),
+        "language": info.language,
+        "text": full_text,
+        "segments": normalized_segments,
     }
     _write_transcript_files(transcript, json_path, text_path)
-
+    
     duration = time.perf_counter() - start
     LOGGER.info(
         "transcriber:end provider=whisper json=%s text=%s duration_seconds=%.2f",
@@ -153,6 +175,7 @@ def _transcribe_with_whisper(
     transcript["json_path"] = str(json_path)
     transcript["text_path"] = str(text_path)
     return transcript
+
 
 
 def transcribe_audio(
@@ -182,12 +205,20 @@ def transcribe_audio(
         except Exception as exc:
             if not bool(settings.get("fallback_to_whisper", True)):
                 raise
+            fallback_device = str(settings.get("device", "cpu")).strip().lower()
+            if fallback_device == "cpu" and _is_cuda_available():
+                fallback_device = "cuda"
             LOGGER.warning(
-                "transcriber:gemma_fallback input=%s reason=%s: %s",
+                "transcriber:gemma_fallback input=%s reason=%s: %s | action=install optional autosync deps (scripts/setup_autosync.ps1) | fallback_provider=whisper device=%s",
                 input_path,
                 type(exc).__name__,
                 exc,
+                fallback_device,
             )
+            settings = dict(settings)
+            settings["device"] = fallback_device
+            if fallback_device.startswith("cuda"):
+                settings["fp16"] = False
 
     return _transcribe_with_whisper(input_path, settings, json_path, text_path)
 

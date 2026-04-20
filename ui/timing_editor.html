@@ -33,16 +33,22 @@
     button, input, textarea, select { font: inherit; }
     button {
       border: 0;
-      border-radius: 14px;
-      padding: 10px 14px;
+      border-radius: 7px;
+      padding: 2px 14px;
       background: var(--accent);
       color: #241906;
       font-weight: 800;
+      line-height: 1.45;
       cursor: pointer;
+      min-width: 52px;
+      text-align: center;
+      direction: inherit;
+      unicode-bidi: isolate;
     }
     button.secondary { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+    #zoomOut, #zoomIn, #zoomReset { padding: 3px 8px; font-size: 11px; min-width: 36px; }
     button.warn { background: var(--warn); color: #2b0d08; }
-    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); min-width: 52px; text-align: center; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
 
     input, textarea, select {
@@ -71,15 +77,25 @@
       box-shadow: var(--shadow);
     }
     .app {
-      display: grid;
-      grid-template-columns: 292px minmax(0, 1fr);
-      gap: 26px;
+      display: flex;
+      gap: 20px;
       min-height: calc(100vh - 56px);
       align-items: start;
     }
-    .rail, .workspace { min-width: 0; display: grid; gap: 14px; position: relative; }
-    .rail { z-index: 2; }
-    .workspace { z-index: 1; }
+    .rail {
+      flex: 0 0 292px;
+      width: 292px;
+      min-width: 292px;
+      z-index: 2;
+      overflow: hidden;
+    }
+    .workspace {
+      flex: 1;
+      min-width: 0;
+      z-index: 1;
+      overflow: hidden;
+    }
+    .rail > *, .workspace > * { min-width: 0; }
     .section {
       border-radius: var(--r);
       border: 1px solid var(--line);
@@ -99,9 +115,43 @@
     h2 { font: 700 22px / 1.05 var(--display); letter-spacing: -0.02em; }
     .muted { color: var(--muted); }
     .stack, .actions { display: grid; gap: 12px; }
-    .toolbar, .meta, .wordbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
+    .toolbar-left, .toolbar-right { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
+    .toolbar-middle {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      min-width: 80px;
+      padding: 0 8px;
+      overflow: hidden;
+    }
+    .toolbar-middle .chip {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      direction: rtl;
+      unicode-bidi: isolate;
+    }
     .toolbar.split { justify-content: space-between; align-items: center; }
-    .toolbar-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar-group { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
+    .stem-mix {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      padding: 6px 8px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+      min-width: 150px;
+    }
+    .stem-mix input[type="range"] {
+      width: 132px;
+      accent-color: var(--accent);
+      padding: 0;
+      background: transparent;
+      border: 0;
+    }
     .field { display: grid; gap: 7px; }
     .title-block { display: grid; gap: 6px; margin-bottom: 10px; }
     .title-block h1 { white-space: nowrap; }
@@ -123,11 +173,14 @@
     .chip {
       display: inline-flex;
       align-items: center;
-      padding: 9px 12px;
+      padding: 6px 10px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.06);
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
+      min-width: 52px;
+      text-align: center;
+      justify-content: center;
     }
     .chip.ok { color: #d6f5d2; background: rgba(143, 208, 143, 0.16); }
     .chip.warn { color: #ffd1c5; background: rgba(255, 143, 120, 0.14); }
@@ -144,22 +197,36 @@
 
     .stage, .editor { display: grid; gap: 14px; }
     .preview {
-      min-height: 188px;
-      height: 188px;
+      min-height: 280px;
+      height: 280px;
       border-radius: 22px;
       border: 1px solid rgba(255,255,255,0.05);
       background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.15));
-      display: grid;
-      align-content: center;
-      justify-items: stretch;
-      gap: 8px;
       padding: 18px 24px;
       text-align: center;
+      position: relative;
+      overflow: hidden;
+      contain: layout paint;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
     .preview.empty {
+      align-items: center;
       direction: ltr;
       font: 500 17px/1.4 var(--ui);
       color: rgba(255,255,255,0.45);
+    }
+    .preview-scroll {
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+      transform: translateY(-50%);
     }
     .preview-line {
       display: flex;
@@ -171,13 +238,27 @@
       font: 700 clamp(30px, 3.4vw, 50px) / 1.14 var(--display);
       letter-spacing: -0.03em;
       text-align: center;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    .preview-line.past {
+      opacity: 0;
+      transform: translateY(-30px) scale(0.9);
+      pointer-events: none;
+    }
+    .preview-line.current {
+      opacity: 1;
+      transform: scale(1);
     }
     .preview-line.upcoming {
       opacity: 0.34;
       font-size: clamp(24px, 2.6vw, 38px);
+      transform: scale(1);
     }
-    .preview-line.placeholder {
-      opacity: 0.12;
+    .preview-line.standby {
+      opacity: 0;
+      transform: translateY(30px) scale(0.95);
     }
     .preview-word { opacity: 0.34; transition: opacity 120ms ease, color 120ms ease, transform 120ms ease; }
     .preview-word.hidden { visibility: hidden; opacity: 0; }
@@ -213,8 +294,8 @@
       font-variant-numeric: tabular-nums;
     }
     .icon-button {
-      min-width: 42px;
-      padding-inline: 12px;
+      min-width: 30px;
+      padding-inline: 8px;
       font-size: 18px;
       line-height: 1;
     }
@@ -490,7 +571,9 @@
 
     @media (max-width: 940px) {
       .shell { width: calc(100vw - 16px); margin: 8px auto; padding: 10px; }
-      .app { grid-template-columns: 1fr; }
+      .app { flex-direction: column; gap: 16px; }
+      .rail { flex: 0 0 auto; width: 100%; min-width: 0; }
+      .workspace { width: 100%; min-width: 0; }
     }
   </style>
 </head>
@@ -567,26 +650,33 @@
           <input id="projectName" class="project-title-input" type="text" placeholder="Project name">
           <div class="preview empty" id="preview">Import a project to begin.</div>
           <audio id="audio" controls preload="metadata"></audio>
-          <div class="toolbar split">
-            <div class="toolbar-group">
-              <div class="time-readout" id="audioTime">0:00 / 0:00</div>
-              <button class="secondary icon-button" id="rewindStart" aria-label="Go to Beginning">⏮</button>
-              <button class="secondary icon-button" id="playPause" aria-label="Play or Pause">▶</button>
-              <button class="secondary" id="back2">-2s</button>
-              <button class="secondary" id="jumpWord">Jump To Word</button>
-              <button class="warn" id="placeWord">Set To Playhead</button>
-              <button class="secondary" id="resetWord">Reset Later</button>
-              <button class="secondary" id="prevWord">Prev</button>
-              <button class="secondary" id="nextWord">Next</button>
-              <button class="secondary" id="lastWord">Last</button>
+          <audio id="vocalsAudio" preload="metadata"></audio>
+          <audio id="musicAudio" preload="metadata"></audio>
+<div class="toolbar">
+              <div class="toolbar-left">
+                <div class="time-readout" id="audioTime">0:00 / 0:00</div>
+                <button class="secondary icon-button" id="rewindStart" aria-label="Go to Beginning">⏮</button>
+                <button class="secondary icon-button" id="playPause" aria-label="Play or Pause">▶</button>
+                <button class="secondary" id="back2">-2s</button>
+                <button class="secondary" id="jumpWord">Sync</button>
+                <button class="warn" id="placeWord">Commit</button>
+                <button class="secondary" id="resetWord">Reset→</button>
+                <button class="secondary" id="prevWord">Prev</button>
+                <button class="secondary" id="nextWord">Next</button>
+              </div>
+              <div class="toolbar-middle">
+                <div class="chip selected" id="selectedWordLabel">Selected word: none</div>
+              </div>
+              <div class="toolbar-right">
+                <button class="secondary" id="lastWord">Last</button>
+                <div class="stem-mix">
+                  <input id="stemMix" type="range" min="-1" max="1" step="0.01" value="0">
+                </div>
+                <button class="secondary" id="zoomOut" aria-label="Zoom Out">-</button>
+                <button class="secondary" id="zoomIn" aria-label="Zoom In">+</button>
+                <button class="secondary" id="zoomReset" aria-label="Reset Zoom">100</button>
+              </div>
             </div>
-            <div class="toolbar-group">
-              <div class="chip selected" id="selectedWordLabel">Selected word: none</div>
-              <button class="secondary" id="zoomOut" aria-label="Zoom Out">-</button>
-              <button class="secondary" id="zoomIn" aria-label="Zoom In">+</button>
-              <button class="secondary" id="zoomReset" aria-label="Reset Zoom">100</button>
-            </div>
-          </div>
           <div class="wave-shell" id="waveShell">
             <div class="word-layer" id="wordLayer"></div>
             <div class="playhead" id="playhead"></div>
@@ -649,6 +739,8 @@
       wavePanEnd: $("wavePanEnd"),
       playhead: $("playhead"),
       audio: $("audio"),
+      vocalsAudio: $("vocalsAudio"),
+      musicAudio: $("musicAudio"),
       rewindStart: $("rewindStart"),
       playPause: $("playPause"),
       back2: $("back2"),
@@ -661,6 +753,7 @@
       exportDetail: $("exportDetail"),
       resetWord: $("resetWord"),
       resetAll: $("resetAll"),
+      stemMix: $("stemMix"),
     };
 
     const state = {
@@ -686,6 +779,8 @@
       exportLocalStartMs: null,
       outputVideoPath: null,
       lyricsTextDebounce: null,
+      stemMixValue: 0,
+      stemMixAvailable: false,
     };
 
     function clamp(value, min, max) {
@@ -728,6 +823,90 @@
       }
       const lastBase = state.baseWords[state.baseWords.length - 1];
       return lastBase ? lastBase.end : 0;
+    }
+
+    function clampUnit(value) {
+      return clamp(value, -1, 1);
+    }
+
+    function applyStemMix() {
+      const safe = clampUnit(state.stemMixValue);
+      const deadZone = 0.08;
+      const absSafe = Math.abs(safe);
+      let masterGain = 0.0;
+      let vocalsGain = 0.0;
+      let musicGain = 0.0;
+      if (absSafe <= deadZone) {
+        masterGain = 1.0;
+      } else if (safe < -deadZone) {
+        vocalsGain = clamp((-safe - deadZone) / (1 - deadZone), 0, 1);
+        masterGain = 1.0 - vocalsGain;
+      } else {
+        musicGain = clamp((safe - deadZone) / (1 - deadZone), 0, 1);
+        masterGain = 1.0 - musicGain;
+      }
+      if (state.stemMixAvailable) {
+        ui.audio.muted = false;
+        ui.audio.volume = masterGain;
+        ui.vocalsAudio.volume = vocalsGain;
+        ui.musicAudio.volume = musicGain;
+      } else {
+        ui.audio.muted = false;
+        ui.audio.volume = 1.0;
+      }
+    }
+
+    function pauseStemPlayers() {
+      ui.vocalsAudio.pause();
+      ui.musicAudio.pause();
+    }
+
+    function syncStemPlayback(options = {}) {
+      if (!state.stemMixAvailable) {
+        return;
+      }
+      const force = Boolean(options.force);
+      const targetTime = clamp(ui.audio.currentTime || 0, 0, getAudioDuration());
+      [ui.vocalsAudio, ui.musicAudio].forEach((player) => {
+        const current = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+        if (force || Math.abs(current - targetTime) > 0.08) {
+          try {
+            player.currentTime = targetTime;
+          } catch (_) {
+            // ignore media seek sync errors
+          }
+        }
+        if (ui.audio.paused) {
+          player.pause();
+        } else if (player.paused) {
+          player.play().catch(() => {});
+        }
+      });
+    }
+
+    function refreshStemAvailability() {
+      const vocalsReady = ui.vocalsAudio.readyState >= 1;
+      const musicReady = ui.musicAudio.readyState >= 1;
+      state.stemMixAvailable = vocalsReady && musicReady;
+      applyStemMix();
+      renderButtons();
+    }
+
+    function setupStemPlaybackSources() {
+      const seed = Date.now();
+      ui.audio.src = `/api/audio?artifact=audio_wav&t=${seed}`;
+      ui.vocalsAudio.src = `/api/audio?artifact=vocals_wav&t=${seed}`;
+      ui.musicAudio.src = `/api/audio?artifact=no_vocals_wav&t=${seed}`;
+      ui.audio.load();
+      ui.vocalsAudio.load();
+      ui.musicAudio.load();
+      state.stemMixAvailable = false;
+      applyStemMix();
+      
+      // Re-check availability once audio metadata loads
+      const onReady = () => refreshStemAvailability();
+      ui.vocalsAudio.addEventListener("loadedmetadata", onReady, { once: true });
+      ui.musicAudio.addEventListener("loadedmetadata", onReady, { once: true });
     }
 
     function getWordDuration(baseWord) {
@@ -849,11 +1028,15 @@
       if (!flattened.length) {
         return { lines: [], words: [] };
       }
-
-      const totalDuration = Math.max(Number(durationSeconds) || 0, flattened.length);
-      const slotDuration = totalDuration / flattened.length;
+      
+      const safeDuration = Number.isFinite(durationSeconds) && durationSeconds > 0 
+        ? durationSeconds 
+        : Math.max(flattened.length * 0.5, 10.0);
+        
+      const slotDuration = safeDuration / flattened.length;
       const words = [];
       const lineToWordIds = new Map(lines.map((_, index) => [index, []]));
+
 
       flattened.forEach((entry, index) => {
         const start = Number((index * slotDuration).toFixed(3));
@@ -1608,58 +1791,98 @@
       return { currentLine, nextLine };
     }
 
-    function appendPreviewLine(container, line, activePreviewWord, options = {}) {
-      const upcoming = Boolean(options.upcoming);
-      const row = document.createElement("div");
-      row.className = `preview-line${upcoming ? " upcoming" : ""}${line ? "" : " placeholder"}`;
-      if (!line || !line.words || !line.words.length) {
-        row.innerHTML = "&nbsp;";
-        container.appendChild(row);
-        return;
-      }
+    let previewScrollDOM = null;
 
-      const lineWords = Array.isArray(line.allWords) && line.allWords.length ? line.allWords : line.words;
-      row.dir = inferDirection(line.text || lineWords.map((word) => word.text).join(" "));
-      lineWords.forEach((word) => {
-        const span = document.createElement("span");
-        span.className = "preview-word";
-        span.textContent = word.text;
-        if (!upcoming && !isWordPlaced(Number(word.index))) {
-          span.classList.add("hidden");
-        } else if (!upcoming && activePreviewWord && word.id === activePreviewWord.id) {
-          span.classList.add("current");
-        }
-        row.appendChild(span);
+    function initPreviewScroll() {
+      const lines = getResolvedLines();
+      if (!lines.length) return;
+      
+      ui.preview.innerHTML = "";
+      previewScrollDOM = document.createElement("div");
+      previewScrollDOM.className = "preview-scroll";
+      
+      lines.forEach((line) => {
+        const row = document.createElement("div");
+        row.className = "preview-line standby";
+        row.dataset.lineIndex = line.index;
+        
+        const lineWords = Array.isArray(line.allWords) && line.allWords.length ? line.allWords : line.words;
+        row.dir = inferDirection(line.text || lineWords.map((word) => word.text).join(" "));
+        
+        lineWords.forEach((word) => {
+          const span = document.createElement("span");
+          span.className = "preview-word hidden";
+          span.textContent = word.text;
+          span.dataset.wordId = word.id;
+          row.appendChild(span);
+        });
+        
+        previewScrollDOM.appendChild(row);
       });
-      container.appendChild(row);
+      
+      ui.preview.appendChild(previewScrollDOM);
     }
 
     function renderPreview() {
       const previewWords = getPreviewWordSnapshot();
       const activePreviewWord = getActivePreviewWord(previewWords);
-      const { currentLine, nextLine } = findPreviewLines();
+      const { currentLine } = findPreviewLines();
 
       if (!state.resolvedWords.length) {
         ui.preview.className = "preview empty";
-        ui.preview.textContent = "Import a project to begin.";
+        ui.preview.textContent = state.session?.project_id 
+          ? "Project loaded. Paste lyrics in the text area to begin timing." 
+          : "Import a project to begin.";
+        previewScrollDOM = null;
         renderSelectedWordLabel(getSelectedWord());
         return;
       }
 
-      if (!currentLine || !currentLine.words.length) {
-        renderSelectedWordLabel(getSelectedWord());
-        ui.preview.className = "preview";
-        ui.preview.innerHTML = "";
-        appendPreviewLine(ui.preview, null, null);
-        appendPreviewLine(ui.preview, null, null, { upcoming: true });
-        return;
-      }
-
-      renderSelectedWordLabel(getSelectedWord());
+      
       ui.preview.className = "preview";
-      ui.preview.innerHTML = "";
-      appendPreviewLine(ui.preview, currentLine, activePreviewWord);
-      appendPreviewLine(ui.preview, nextLine, activePreviewWord, { upcoming: true });
+      
+      if (!previewScrollDOM || previewScrollDOM.children.length !== getResolvedLines().length) {
+        initPreviewScroll();
+      }
+      
+      renderSelectedWordLabel(getSelectedWord());
+      const currentIndex = currentLine ? currentLine.index : -1;
+      
+      let targetOffset = 0;
+      
+      Array.from(previewScrollDOM.children).forEach((row) => {
+        const lineIndex = Number(row.dataset.lineIndex);
+        
+        if (lineIndex < currentIndex) {
+          row.className = "preview-line past";
+        } else if (lineIndex === currentIndex) {
+          row.className = "preview-line current";
+          targetOffset = -row.offsetTop - (row.offsetHeight / 2);
+        } else if (lineIndex === currentIndex + 1) {
+          row.className = "preview-line upcoming";
+        } else {
+          row.className = "preview-line standby";
+        }
+        
+        // Update words inside row
+        Array.from(row.children).forEach((span) => {
+          const wordId = span.dataset.wordId;
+          const word = state.resolvedWords.find(w => w.id === wordId);
+          if (!word || !isWordPlaced(word.index)) {
+            span.className = "preview-word hidden";
+          } else if (activePreviewWord && word.id === activePreviewWord.id) {
+            span.className = "preview-word current done";
+          } else {
+            span.className = "preview-word done";
+          }
+        });
+      });
+      
+      if (currentIndex >= 0 && previewScrollDOM.children[currentIndex]) {
+        previewScrollDOM.style.transform = `translateY(${targetOffset}px)`;
+      } else {
+        previewScrollDOM.style.transform = `translateY(0px)`;
+      }
     }
 
     function renderWordLayer() {
@@ -1821,6 +2044,9 @@
       if (ui.playPause) {
         ui.playPause.textContent = ui.audio.paused ? "▶" : "⏸";
       }
+      if (ui.stemMix) {
+        ui.stemMix.disabled = !hasWords || !state.stemMixAvailable;
+      }
       if (ui.rewindStart) {
         ui.rewindStart.textContent = "⏮";
       }
@@ -1959,6 +2185,7 @@
 
     async function loadProject(options = {}) {
       ui.audio.pause();
+      pauseStemPlayers();
       try {
         ui.audio.currentTime = 0;
       } catch (_) {
@@ -2005,11 +2232,11 @@
       }
       try {
         state.waveform = await fetchJson(`/api/waveform?bins=2600&t=${Date.now()}`);
-        ui.audio.src = `/api/audio?t=${Date.now()}`;
-        ui.audio.load();
+        setupStemPlaybackSources();
       } catch (_) {
         state.waveform = null;
         ui.audio.pause();
+        pauseStemPlayers();
         try {
           ui.audio.currentTime = 0;
         } catch (_) {
@@ -2017,6 +2244,12 @@
         }
         ui.audio.removeAttribute("src");
         ui.audio.load();
+        ui.vocalsAudio.removeAttribute("src");
+        ui.vocalsAudio.load();
+        ui.musicAudio.removeAttribute("src");
+        ui.musicAudio.load();
+        state.stemMixAvailable = false;
+        applyStemMix();
       }
 
       if (!ui.lyricsText.value.trim()) {
@@ -2090,14 +2323,36 @@
 
       try {
         const responsePayload = await fetchJson("/api/import/audio-auto", { method: "POST", body: form });
+        
+        // Clear the file input immediately after successful upload
+        ui.audioFile.value = "";
+        
+        // Load project now (audio.wav + lyrics are ready synchronously)
         await loadProject({ bustCache: true });
+        
         const hasLyrics = Boolean(String(state.session?.lyrics_text || "").trim());
         if (responsePayload.lyrics_found && responsePayload.lyrics_source_url && hasLyrics) {
           updateLyricsSourceLink(responsePayload.lyrics_source_url);
           updateStatusChip(ui.projectStatus, responsePayload.lyrics_title ? `Lyrics imported: ${responsePayload.lyrics_title}` : "Lyrics imported.", "ok");
         } else {
           updateLyricsSourceLink("");
-          updateStatusChip(ui.projectStatus, "No lyrics found.", "warn");
+          updateStatusChip(ui.projectStatus, "No lyrics found. Stems processing...", "warn");
+        }
+
+        // Stems are still processing in background — poll until complete
+        if (responsePayload.status === "running") {
+          state.pipelineAwaitingProjectLoad = true;
+          try {
+            const pipelineStatus = await syncPipelineStatus();
+            if (pipelineStatus.status === "running") {
+              startPipelinePolling();
+            } else if (pipelineStatus.status === "completed") {
+              await stopPipelineAndLoadProject();
+              updateStatusChip(ui.projectStatus, "Stems ready.", "ok");
+            }
+          } catch (_) {
+            startPipelinePolling();
+          }
         }
       } catch (error) {
         updateStatusChip(ui.projectStatus, error.message, "warn");
@@ -2145,26 +2400,29 @@
           body: JSON.stringify(payload),
         });
         ui.youtubeUrl.value = "";
-        state.pipelineAwaitingProjectLoad = responsePayload.status === "running";
+        
+        // Load project immediately (audio.wav + lyrics are ready synchronously)
+        await loadProject({ bustCache: true });
+        
+        const hasLyrics = Boolean(String(state.session?.lyrics_text || "").trim());
+        if (responsePayload.lyrics_source_url && hasLyrics) {
+          updateLyricsSourceLink(responsePayload.lyrics_source_url);
+          updateStatusChip(ui.projectStatus, responsePayload.lyrics_title ? `Lyrics imported: ${responsePayload.lyrics_title}` : "Lyrics imported. Stems processing...", "ok");
+        } else {
+          updateLyricsSourceLink("");
+          updateStatusChip(ui.projectStatus, "No lyrics found. Stems processing...", "warn");
+        }
+
+        // Stems are still processing in background — poll until complete
         if (responsePayload.status === "running") {
-          updateStatusChip(ui.projectStatus, "Pipeline started. Watching progress...", "ok");
+          state.pipelineAwaitingProjectLoad = true;
           try {
             const pipelineStatus = await syncPipelineStatus();
             if (pipelineStatus.status === "running") {
               startPipelinePolling();
             } else if (pipelineStatus.status === "completed") {
               await stopPipelineAndLoadProject();
-              const hasLyrics = Boolean(String(state.session?.lyrics_text || "").trim());
-              if (hasLyrics) {
-                updateStatusChip(
-                  ui.projectStatus,
-                  `Lyrics imported: ${pipelineStatus.project_name || responsePayload.project_name || "Project ready"}`,
-                  "ok",
-                );
-              } else {
-                updateLyricsSourceLink("");
-                updateStatusChip(ui.projectStatus, "No lyrics found.", "warn");
-              }
+              updateStatusChip(ui.projectStatus, "Stems ready.", "ok");
             }
           } catch (_) {
             startPipelinePolling();
@@ -2581,6 +2839,12 @@
           ui.audio.pause();
         }
       });
+      if (ui.stemMix) {
+        ui.stemMix.addEventListener("input", (event) => {
+          state.stemMixValue = clampUnit(Number(event.target.value || 0));
+          applyStemMix();
+        });
+      }
       ui.rewindStart.addEventListener("click", seekToStart);
       ui.back2.addEventListener("click", () => seekRelative(-2));
       ui.jumpWord.addEventListener("click", jumpToSelectedWord);
@@ -2599,11 +2863,28 @@
       ["timeupdate", "seeked", "loadedmetadata", "durationchange", "play", "pause"].forEach((eventName) => {
         ui.audio.addEventListener(eventName, queueRender);
       });
+      ["seeked", "play"].forEach((eventName) => {
+        ui.audio.addEventListener(eventName, () => syncStemPlayback({ force: true }));
+      });
+      ui.audio.addEventListener("pause", pauseStemPlayers);
+      ui.audio.addEventListener("ratechange", () => {
+        ui.vocalsAudio.playbackRate = ui.audio.playbackRate || 1;
+        ui.musicAudio.playbackRate = ui.audio.playbackRate || 1;
+      });
+      ui.vocalsAudio.addEventListener("loadedmetadata", refreshStemAvailability);
+      ui.musicAudio.addEventListener("loadedmetadata", refreshStemAvailability);
+      ui.vocalsAudio.addEventListener("error", refreshStemAvailability);
+      ui.musicAudio.addEventListener("error", refreshStemAvailability);
 
       window.addEventListener("resize", queueRender);
     }
 
     bindEvents();
+    state.stemMixValue = 0;
+    if (ui.stemMix) {
+      ui.stemMix.value = "0";
+    }
+    applyStemMix();
     renderAll();
     loadProject({ bustCache: true }).catch((error) => {
       updateStatusChip(ui.projectStatus, error.message, "warn");
