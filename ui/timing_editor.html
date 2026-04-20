@@ -53,6 +53,7 @@
 
     input, textarea, select {
       width: 100%;
+      max-width: 100%;
       border-radius: 14px;
       border: 1px solid var(--line);
       background: rgba(0, 0, 0, 0.2);
@@ -166,6 +167,8 @@
       color: var(--muted);
       font-size: 12px;
       text-decoration: none;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .field-link:hover {
       color: var(--accent);
@@ -635,7 +638,7 @@
               <label for="lyricsSourceLink">Lyrics Source</label>
         <a class="field-link" id="lyricsSourceLink" href="https://shirrim.com/singers/israel-singers/" target="_blank" rel="noopener noreferrer">https://shirrim.com/singers/israel-singers/</a>
             </div>
-            <button id="aiFirstPass">AI First Pass</button>
+            <button id="aiFirstPass">AI Pass</button>
             <button id="stopAiPass" class="warn" hidden>Stop AI Pass</button>
             <div class="field">
               <label for="lyricsText">Lyrics Text</label>
