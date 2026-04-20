@@ -1583,7 +1583,7 @@
         if (wordIndex >= committedCount || !Number.isFinite(word.start)) {
           return null;
         }
-        return word.start;
+        return state.wordDrag && state.wordDrag.originalStarts ? state.wordDrag.originalStarts[wordIndex] : word.start;
       });
 
       starts[index] = Math.max(targetStart, 0);
@@ -2143,6 +2143,7 @@
         originStart: draggedWord.start,
         wordIndex,
         anchorPercent: clamp(timeToPercent(displayStart), 0, 100),
+        originalStarts: state.resolvedWords.map(w => w.start),
       };
       state.selectedWordIndex = wordIndex;
       if (event.currentTarget && typeof event.currentTarget.setPointerCapture === "function") {
