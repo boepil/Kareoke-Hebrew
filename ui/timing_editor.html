@@ -2152,7 +2152,7 @@
         return;
       }
       const deltaX = event.clientX - state.wordDrag.originX;
-      const deltaSeconds = (deltaX / state.wordDrag.width) * state.zoomSeconds * PLAYHEAD_DRAG_SENSITIVITY;
+      const deltaSeconds = (deltaX / state.wordDrag.width) * state.zoomSeconds;
       setDraggedWordStart(state.wordDrag.wordIndex, state.wordDrag.originStart + deltaSeconds);
       queueRender();
     }
