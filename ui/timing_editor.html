@@ -1807,40 +1807,43 @@
 
     function findPreviewLines() {
       const lines = getResolvedLines();
-      if (!lines.length) {
-        return { currentLine: null, nextLine: null };
-      }
-      const previewWords = getPreviewWordSnapshot();
-      const activeWord = getActivePreviewWord(previewWords);
-      let currentLine = null;
-      if (activeWord) {
-        currentLine = lines.find((line) => line.index === activeWord.line_index) || null;
-      }
+      if (!lines.length) return { activeIndex: -1, upcomingIndex: -1 };
 
-      if (!currentLine) {
-        const currentTime = ui.audio.currentTime || 0;
-        const latestStartedWord = [...previewWords.values()]
-          .sort((a, b) => b.previewStart - a.previewStart)
-          .find((word) => currentTime >= word.previewStart);
-        if (latestStartedWord) {
-          currentLine = lines.find((line) => line.index === latestStartedWord.line_index) || null;
+      const currentTime = ui.audio.currentTime || 0;
+      const previewWords = getPreviewWordSnapshot();
+      
+      let activeIndex = -1;
+      let upcomingIndex = -1;
+
+      // Find the active line
+      for (const line of lines) {
+        if (!line.word_ids || !line.word_ids.length) continue;
+        const firstWord = previewWords.get(line.word_ids[0]);
+        const lastWord = previewWords.get(line.word_ids[line.word_ids.length - 1]);
+        if (!firstWord || !lastWord) continue;
+        
+        // A line is "active" (centered) roughly 1.0s before its first word, until its last word ends.
+        if (currentTime >= firstWord.previewStart - 1.0 && currentTime <= lastWord.previewEnd) {
+          activeIndex = line.index;
+          break;
         }
       }
 
-      if (!currentLine) {
-        const currentTime = ui.audio.currentTime || 0;
-        currentLine = lines.find((line) => currentTime >= line.start && currentTime < line.end) || null;
+      if (activeIndex === -1) {
+        // Gap state: find the NEXT line to be promoted
+        for (const line of lines) {
+          if (!line.word_ids || !line.word_ids.length) continue;
+          const firstWord = previewWords.get(line.word_ids[0]);
+          if (firstWord && currentTime < firstWord.previewStart - 1.0) {
+            upcomingIndex = line.index;
+            break;
+          }
+        }
+      } else {
+        upcomingIndex = activeIndex + 1;
       }
 
-      if (!currentLine) {
-        const currentTime = ui.audio.currentTime || 0;
-        currentLine = lines.find((line) => line.start >= currentTime) || lines[lines.length - 1] || null;
-      }
-
-      const nextLine = currentLine
-        ? lines.find((line) => line.index > currentLine.index && line.words && line.words.length) || null
-        : null;
-      return { currentLine, nextLine };
+      return { activeIndex, upcomingIndex };
     }
 
     let previewScrollDOM = null;
@@ -1878,7 +1881,7 @@
     function renderPreview() {
       const previewWords = getPreviewWordSnapshot();
       const activePreviewWord = getActivePreviewWord(previewWords);
-      const { currentLine } = findPreviewLines();
+      const { activeIndex, upcomingIndex } = findPreviewLines();
 
       if (!state.resolvedWords.length) {
         ui.preview.className = "preview empty";
@@ -1890,7 +1893,6 @@
         return;
       }
 
-      
       ui.preview.className = "preview";
       
       if (!previewScrollDOM || previewScrollDOM.children.length !== getResolvedLines().length) {
@@ -1898,22 +1900,39 @@
       }
       
       renderSelectedWordLabel(getSelectedWord());
-      const currentIndex = currentLine ? currentLine.index : -1;
       
       let targetOffset = 0;
       
       Array.from(previewScrollDOM.children).forEach((row) => {
         const lineIndex = Number(row.dataset.lineIndex);
         
-        if (lineIndex < currentIndex) {
-          row.className = "preview-line past";
-        } else if (lineIndex === currentIndex) {
-          row.className = "preview-line current";
-          targetOffset = -row.offsetTop - (row.offsetHeight / 2);
-        } else if (lineIndex === currentIndex + 1) {
-          row.className = "preview-line upcoming";
+        if (activeIndex !== -1) {
+          // Standard active block
+          if (lineIndex < activeIndex) {
+            row.className = "preview-line past";
+          } else if (lineIndex === activeIndex) {
+            row.className = "preview-line current";
+            targetOffset = -row.offsetTop - (row.offsetHeight / 2);
+          } else if (lineIndex === upcomingIndex) {
+            row.className = "preview-line upcoming";
+          } else {
+            row.className = "preview-line standby";
+          }
         } else {
-          row.className = "preview-line standby";
+          // Gap state
+          if (upcomingIndex !== -1) {
+            if (lineIndex < upcomingIndex) {
+               row.className = "preview-line past";
+            } else if (lineIndex === upcomingIndex) {
+               row.className = "preview-line upcoming";
+               targetOffset = -row.offsetTop - (row.offsetHeight / 2) + 50; 
+            } else {
+               row.className = "preview-line standby";
+            }
+          } else {
+            row.className = "preview-line past";
+            targetOffset = -previewScrollDOM.offsetHeight;
+          }
         }
         
         // Update words inside row
@@ -1930,11 +1949,7 @@
         });
       });
       
-      if (currentIndex >= 0 && previewScrollDOM.children[currentIndex]) {
-        previewScrollDOM.style.transform = `translateY(${targetOffset}px)`;
-      } else {
-        previewScrollDOM.style.transform = `translateY(0px)`;
-      }
+      previewScrollDOM.style.transform = `translateY(${targetOffset}px)`;
     }
 
     function renderWordLayer() {

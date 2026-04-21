@@ -427,6 +427,7 @@ def _build_image_overlay_filter_script(
             concat_path = Path(event["concat_path"]).resolve()
             input_args.extend(["-f", "concat", "-safe", "0", "-i", str(concat_path)])
             
+            t_done = t_finish + slide_dur + 0.5
             next_label = f"[v{index}]"
             
             y_hidden_bottom = f"({y_center_expr})+h+55"

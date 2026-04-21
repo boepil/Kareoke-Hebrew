@@ -2056,18 +2056,18 @@ def _resolve_manual_word_windows(
         final_end = word["vocal_end"]
         
         if i == len(all_resolved) - 1:
-            # Rule: Last word of song gets 3.0s padding
-            final_end = word["vocal_end"] + 3.0
+            # Rule: Last word of song ends exactly at its vocal end
+            final_end = word["vocal_end"]
         else:
             next_word = all_resolved[i+1]
             next_start = next_word["start"]
             gap = next_start - word["vocal_end"]
             
-            if word["is_line_end"] or gap > 3.0:
-                # Rule: End of line or big gap gets 3.0s padding
-                final_end = min(word["vocal_end"] + 3.0, next_start)
+            if word["is_line_end"] or gap > 1.0:
+                # Rule: End of line or moderate gap ends exactly at vocal end
+                final_end = min(word["vocal_end"], next_start)
             else:
-                # Rule: Chained presentation
+                # Rule: Chained presentation (tight sequence)
                 final_end = next_start
         
         # Final safety check
