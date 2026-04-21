@@ -919,25 +919,81 @@
     function syncResolvedWords() {
       const overrides = state.overrides.words || {};
       const manifestWords = Array.isArray(state.manifest.words) ? state.manifest.words : [];
+      const manifestLines = Array.isArray(state.manifest.lines) ? state.manifest.lines : [];
+
+      // Create a set of word IDs that are the last words of any line
+      const lineEndWordIds = new Set();
+      manifestLines.forEach((line) => {
+        if (Array.isArray(line.word_ids) && line.word_ids.length > 0) {
+          lineEndWordIds.add(line.word_ids[line.word_ids.length - 1]);
+        }
+      });
+
       state.baseWords = [...manifestWords].sort((a, b) => a.index - b.index);
       state.placedWordCount = clamp(Number(state.overrides.placed_word_count || 0), 0, state.baseWords.length);
-      state.resolvedWords = state.baseWords.map((word, index) => {
+
+      // Pass 1: Resolve starts and base ends
+      const words = state.baseWords.map((word, index) => {
         const override = overrides[word.id] || {};
         const duration = getWordDuration(word);
         const isCommitted = index < state.placedWordCount;
         const start = isCommitted
           ? (Number.isFinite(override.start) ? override.start : word.start)
           : null;
-        const end = isCommitted
+        let end = isCommitted
           ? (Number.isFinite(override.end) ? override.end : word.end)
           : null;
+
         return {
           ...word,
           duration,
           start,
-          end: Number.isFinite(start) && Number.isFinite(end) && end > start ? end : (Number.isFinite(start) ? start + duration : null),
+          // Vocal end MUST be based on the natural duration to detect gaps correctly.
+          // Using override.end here would cause circular logic since override.end 
+          // might already be 'chained' to the next word.
+          vocalEnd: Number.isFinite(start) ? start + duration : null,
+          isLineEnd: lineEndWordIds.has(word.id),
         };
       });
+
+      // Pass 2: Refine end times based on the "Chained Timing" and "3s Padding" rules
+      state.resolvedWords = words.map((word, index) => {
+        if (word.start === null) return word;
+
+        const nextWord = words[index + 1];
+        const isLastWord = index === words.length - 1;
+        const isNextPlaced = nextWord && nextWord.start !== null;
+
+        let finalEnd = word.vocalEnd;
+
+        if (isLastWord) {
+          // Rule: Last word of song gets 3.0s padding
+          finalEnd = word.vocalEnd + 3.0;
+        } else if (isNextPlaced) {
+          // Chained logic: End at next start unless there's a big gap or it's EOL
+          const nextStart = nextWord.start;
+          const gap = nextStart - word.vocalEnd;
+
+          if (word.isLineEnd || gap > 3.0) {
+            // Rule: End of line or big gap gets 3.0s padding
+            finalEnd = Math.min(word.vocalEnd + 3.0, nextStart);
+          } else {
+            // Rule: Chained presentation
+            finalEnd = nextStart;
+          }
+        } else {
+          // Next word not placed yet, follow EOL rule if it's EOL
+          if (word.isLineEnd) {
+            finalEnd = word.vocalEnd + 3.0;
+          }
+        }
+
+        return {
+          ...word,
+          end: Number(finalEnd.toFixed(3)),
+        };
+      });
+
       const currentIndex = Math.min(state.placedWordCount, Math.max(state.resolvedWords.length - 1, 0));
       state.selectedWordIndex = clamp(currentIndex, 0, Math.max(state.resolvedWords.length - 1, 0));
     }
@@ -1559,9 +1615,11 @@
       const clampedStart = clamp(targetStart, minStart, Math.max(duration - wordDuration, minStart));
 
       current.start = Number(clampedStart.toFixed(3));
+      // End will be updated by syncResolvedWords after buildOverrides
       current.end = Number((clampedStart + wordDuration).toFixed(3));
       state.resolvedWords = nextWords;
       buildOverridesFromResolvedWords();
+      syncResolvedWords(); // Trigger re-chaining
       return true;
     }
 
@@ -1616,14 +1674,12 @@
       }
 
       for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
-        const word = nextWords[wordIndex];
-        const wordDuration = Math.max(word.duration || getWordDuration(state.baseWords[wordIndex] || word), 0.12);
-        word.start = Number(starts[wordIndex].toFixed(3));
-        word.end = Number((word.start + wordDuration).toFixed(3));
+        nextWords[wordIndex].start = Number(starts[wordIndex].toFixed(3));
       }
 
       state.resolvedWords = nextWords;
       buildOverridesFromResolvedWords();
+      syncResolvedWords(); // Trigger re-chaining
       return true;
     }
 
@@ -1741,7 +1797,7 @@
         visible.push({
           ...word,
           displayStart: rawStart,
-          displayEnd: rawStart + (isSelectedDraft ? wordDuration : Math.max(word.end - word.start, 0.12)),
+          displayEnd: rawStart + (isSelectedDraft ? wordDuration + 3.0 : Math.max(word.end - word.start, 0.01)),
           isPlaced: isWordPlaced(index),
           isActive: index === state.selectedWordIndex,
         });

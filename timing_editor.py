@@ -1984,7 +1984,18 @@ def _resolve_manual_word_windows(
     if not isinstance(word_overrides, Mapping):
         word_overrides = {}
 
-    windows: dict[str, tuple[float, float, str]] = {}
+    # Identify line-ending words
+    line_end_word_ids = set()
+    raw_lines = manifest.get("lines", [])
+    if isinstance(raw_lines, list):
+        for line in raw_lines:
+            if isinstance(line, Mapping):
+                word_ids = line.get("word_ids", [])
+                if word_ids:
+                    line_end_word_ids.add(str(word_ids[-1]).strip())
+
+    # Pass 1: Resolve starts and base ends
+    all_resolved = []
     raw_words = manifest.get("words", [])
     if not isinstance(raw_words, list):
         raw_words = []
@@ -1995,28 +2006,80 @@ def _resolve_manual_word_windows(
         word_id = str(item.get("id", "")).strip()
         if not word_id:
             continue
-        word_index = max(int(item.get("index", len(windows))), 0)
+        word_index = max(int(item.get("index", len(all_resolved))), 0)
+        
+        # Only process words that have been "placed" in the UI
         if word_index >= placed_word_count:
             continue
 
         start = float(item.get("start", 0.0)) + global_offset
-        end = float(item.get("end", start + 0.12)) + global_offset
+        # Vocal end MUST be based on the natural duration to detect gaps correctly.
+        # We calculate it before applying overrides to avoid circular logic.
+        duration = float(item.get("end", start + 0.12)) - (float(item.get("start", start)))
+        duration = max(duration, 0.12)
+        vocal_end = start + duration
+        
         override = word_overrides.get(word_id, {})
         if isinstance(override, Mapping):
             if "offset" in override:
                 offset = float(override["offset"])
                 start += offset
-                end += offset
+                vocal_end += offset
             if override.get("start") is not None:
                 start = float(override["start"])
             if override.get("end") is not None:
-                end = float(override["end"])
+                # We specifically IGNORE override.end for the 'chained' logic threshold,
+                # but we keep the variable for any existing legacy logic if needed.
+                vocal_end = float(override["end"])
             if "stretch" in override:
-                duration = max(end - start, 0.001) * max(float(override["stretch"]), 0.01)
-                end = start + duration
-        if end <= start:
-            end = start + 0.01
-        windows[word_id] = (start, end, str(item.get("text", "")).strip())
+                stretch_duration = max(vocal_end - start, 0.001) * max(float(override["stretch"]), 0.01)
+                vocal_end = start + stretch_duration
+        
+        if vocal_end <= start:
+            vocal_end = start + 0.12
+            
+        all_resolved.append({
+            "id": word_id,
+            "index": word_index,
+            "start": start,
+            "vocal_end": vocal_end,
+            "text": str(item.get("text", "")).strip(),
+            "is_line_end": word_id in line_end_word_ids
+        })
+
+    # Sort by index to ensure correct chaining
+    all_resolved.sort(key=lambda x: x["index"])
+
+    # Pass 2: Apply Chaining and Padding rules
+    windows: dict[str, tuple[float, float, str]] = {}
+    for i, word in enumerate(all_resolved):
+        final_end = word["vocal_end"]
+        
+        if i == len(all_resolved) - 1:
+            # Rule: Last word of song gets 3.0s padding
+            final_end = word["vocal_end"] + 3.0
+        else:
+            next_word = all_resolved[i+1]
+            next_start = next_word["start"]
+            gap = next_start - word["vocal_end"]
+            
+            if word["is_line_end"] or gap > 3.0:
+                # Rule: End of line or big gap gets 3.0s padding
+                final_end = min(word["vocal_end"] + 3.0, next_start)
+            else:
+                # Rule: Chained presentation
+                final_end = next_start
+        
+        # Final safety check
+        if final_end <= word["start"]:
+            final_end = word["start"] + 0.01
+            
+        windows[word["id"]] = (
+            round(word["start"], 3), 
+            round(final_end, 3), 
+            word["text"]
+        )
+
     return windows
 
 
