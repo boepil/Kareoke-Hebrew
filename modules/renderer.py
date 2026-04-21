@@ -260,6 +260,9 @@ def _load_image_manifest(manifest_path: Path) -> list[dict[str, Any]]:
             "start": float(event.get("start", 0)),
             "end": float(event.get("end", 0)),
             "t_standby": float(event.get("t_standby", -1.0)),
+            "t_promote": float(event.get("t_promote", -1.0)),
+            "t_reveal": float(event.get("t_reveal", -1.0)),
+            "t_finish": float(event.get("t_finish", -1.0)),
             "fade_in_seconds": max(float(event.get("fade_in_seconds", 0.0) or 0.0), 0.0),
             "fade_out_seconds": max(float(event.get("fade_out_seconds", 0.0) or 0.0), 0.0),
             "kind": str(event.get("kind", "")).strip(),
@@ -403,6 +406,7 @@ def _build_image_overlay_filter_script(
             "event": event,
             "t_reveal": max(0.0, float(t_reveal)),
             "t_promote": max(0.0, float(t_promote)),
+            "t_finish": max(0.0, float(event.get("t_finish", end_t))),
             "start": max(0.0, start_t),
             "end": max(0.0, end_t)
         })
@@ -418,12 +422,7 @@ def _build_image_overlay_filter_script(
             t_reveal = kin["t_reveal"]
             t_promote = kin["t_promote"]
             t_active = kin["start"]
-            
-            # The line finishes precisely when the next line claims the center stage!
-            if kin_index + 1 < len(line_kinematics):
-                t_done = line_kinematics[kin_index + 1]["t_promote"]
-            else:
-                t_done = kin["end"] + 1.0  # Safe fade out for final line
+            t_finish = kin["t_finish"]
                 
             concat_path = Path(event["concat_path"]).resolve()
             input_args.extend(["-f", "concat", "-safe", "0", "-i", str(concat_path)])
@@ -433,15 +432,17 @@ def _build_image_overlay_filter_script(
             y_hidden_bottom = f"({y_center_expr})+h+55"
             slide_standby = f"clip((t-{t_reveal:.3f})/{slide_dur:.3f},0,1)"
             slide_active = f"clip((t-{t_promote:.3f})/{slide_dur:.3f},0,1)"
-            slide_done = f"clip((t-{t_done:.3f})/{slide_dur:.3f},0,1)"
+            
+            # Rise starting at t_finish
+            slide_done = f"clip((t-{t_finish:.3f})/{slide_dur:.3f},0,1)"
+            
             y_expr = f"{y_hidden_bottom}-({y_hidden_bottom}-({y_bottom_expr}))*{slide_standby}-(({y_bottom_expr})-({y_center_expr}))*{slide_active}-(({y_center_expr})-({y_top_expr}))*{slide_done}"
             zoom_expr = f"if(lt(t,{t_promote:.3f}),0.85,if(lt(t,{t_promote+slide_dur:.3f}),0.85+0.15*((t-{t_promote:.3f})/{slide_dur:.3f}),1.0))"
             
-            # FADE OUT applied BEFORE split ensures raw alpha dissolves correctly!
-            # fps=25 ensures the sparse concat stream is densified so fade executes monotonically over time!
+            # FADE OUT starting at t_finish
             filter_lines.append(
                 f"[{index}:v]format=rgba,fps=25,setpts=PTS-STARTPTS+{t_reveal:.3f}/TB,tpad=stop_mode=clone:stop_duration=120,"
-                f"fade=t=out:st={t_done:.3f}:d={slide_dur}:alpha=1,split=2[stb_{index}][act_{index}]"
+                f"fade=t=out:st={t_finish:.3f}:d={slide_dur}:alpha=1,split=2[stb_{index}][act_{index}]"
             )
             filter_lines.append(
                 f"[stb_{index}]colorchannelmixer=aa=0.34,fade=t=in:st={t_reveal:.3f}:d={slide_dur}:alpha=1[stb_{index}_f]"

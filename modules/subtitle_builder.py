@@ -400,31 +400,36 @@ def _build_image_events(
     concat_lines: list[str] = []
     
     first_word_start = float(word_windows[0][0]) if word_windows else start
+    last_word_end = float(word_windows[-1][1]) if word_windows else end
     
+    # The line finishes precisely when its last word's padding/duration is done.
+    t_finish = last_word_end
+
     image_path = assets_dir / f"{line_id}_00.png"
     _render_single_line_image(normalized_text, None, image_path, settings)
     
-    # We pad the front of the concat stream so it natively aligns with the timeline!
-    # Because t_reveal is when the line appears
+    # Initial duration of the unhighlighted line (white)
     initial_duration = max(first_word_start - t_reveal, 0.001)
     
     concat_lines.append(f"file '{image_path.name}'")
     concat_lines.append(f"duration {initial_duration:.3f}")
 
     if word_windows:
-        for index, (word_start, word_end, _) in enumerate(word_windows, start=1):
-            word_image_path = assets_dir / f"{line_id}_{index:02d}.png"
-            _render_single_line_image(normalized_text, index - 1, word_image_path, settings)
+        for idx, (word_start, word_end, _) in enumerate(word_windows):
+            # 1. Add the HIGHLIGHTED frame for this word's duration
+            word_image_path = assets_dir / f"{line_id}_{idx+1:02d}.png"
+            _render_single_line_image(normalized_text, idx, word_image_path, settings)
             
-            event_end = word_windows[index][0] if index < len(word_windows) else end
-            duration = max(event_end - word_start, 0.001)
-            
+            highlight_duration = max(word_end - word_start, 0.001)
             concat_lines.append(f"file '{word_image_path.name}'")
-            concat_lines.append(f"duration {duration:.3f}")
+            concat_lines.append(f"duration {highlight_duration:.3f}")
 
-        # Final lingering image logic to not end exactly the frame the line ends
-        concat_lines.append(f"file '{image_path.name}'")
-        concat_lines.append(f"duration 3.000")
+            # 2. Add an UNHIGHLIGHTED (white) frame if there is a gap before the next word
+            next_start = word_windows[idx+1][0] if idx + 1 < len(word_windows) else end
+            gap_duration = next_start - word_end
+            if gap_duration > 0.005:
+                concat_lines.append(f"file '{image_path.name}'")
+                concat_lines.append(f"duration {gap_duration:.3f}")
         
     concat_script_path = assets_dir / f"{line_id}_concat.txt"
     concat_script_path.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
@@ -435,6 +440,7 @@ def _build_image_events(
             "end": end,
             "t_reveal": t_reveal,
             "t_promote": t_promote,
+            "t_finish": t_finish,
             "concat_path": str(concat_script_path),
             "kind": "line_sequence",
         }
