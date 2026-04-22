@@ -956,35 +956,35 @@
         };
       });
 
-      // Pass 2: Refine end times based on the "Chained Timing" and "3s Padding" rules
+      // Pass 2: Refine end times based on the "Chained Timing" and "2s Padding" rules
       state.resolvedWords = words.map((word, index) => {
         if (word.start === null) return word;
 
         const nextWord = words[index + 1];
         const isLastWord = index === words.length - 1;
         const isNextPlaced = nextWord && nextWord.start !== null;
-
-        let finalEnd = word.vocalEnd;
+        
+        // Cap natural vocal duration at 2.0 seconds to prevent tails extending into silence
+        const vocalEndCapped = word.start + Math.min(word.duration, 2.0);
+        let finalEnd = vocalEndCapped;
 
         if (isLastWord) {
-          // Rule: Last word of song gets 3.0s padding
-          finalEnd = word.vocalEnd + 3.0;
+          // Rule: Last word of song gets 2.0s padding
+          finalEnd = vocalEndCapped + 2.0;
         } else if (isNextPlaced) {
-          // Chained logic: End at next start unless there's a big gap or it's EOL
           const nextStart = nextWord.start;
-          const gap = nextStart - word.vocalEnd;
+          const gap = nextStart - vocalEndCapped;
 
-          if (word.isLineEnd || gap > 3.0) {
-            // Rule: End of line or big gap gets 3.0s padding
-            finalEnd = Math.min(word.vocalEnd + 3.0, nextStart);
+          if (word.isLineEnd || gap > 2.0) {
+            // Rule: End of line or large gap gets 2.0s padding
+            finalEnd = Math.min(vocalEndCapped + 2.0, nextStart);
           } else {
             // Rule: Chained presentation
             finalEnd = nextStart;
           }
         } else {
-          // Next word not placed yet, follow EOL rule if it's EOL
           if (word.isLineEnd) {
-            finalEnd = word.vocalEnd + 3.0;
+            finalEnd = vocalEndCapped + 2.0;
           }
         }
 
@@ -1797,7 +1797,7 @@
         visible.push({
           ...word,
           displayStart: rawStart,
-          displayEnd: rawStart + (isSelectedDraft ? wordDuration + 3.0 : Math.max(word.end - word.start, 0.01)),
+          displayEnd: rawStart + (isSelectedDraft ? wordDuration + 2.0 : Math.max(word.end - word.start, 0.01)),
           isPlaced: isWordPlaced(index),
           isActive: index === state.selectedWordIndex,
         });
@@ -1822,8 +1822,8 @@
         const lastWord = previewWords.get(line.word_ids[line.word_ids.length - 1]);
         if (!firstWord || !lastWord) continue;
         
-        // A line is "active" (centered) roughly 1.0s before its first word, until its last word ends.
-        if (currentTime >= firstWord.previewStart - 1.0 && currentTime <= lastWord.previewEnd) {
+        // A line is "active" (centered) roughly 0.2s before its first word, until its last word ends.
+        if (currentTime >= firstWord.previewStart - 0.2 && currentTime <= lastWord.previewEnd) {
           activeIndex = line.index;
           break;
         }
@@ -1834,7 +1834,7 @@
         for (const line of lines) {
           if (!line.word_ids || !line.word_ids.length) continue;
           const firstWord = previewWords.get(line.word_ids[0]);
-          if (firstWord && currentTime < firstWord.previewStart - 1.0) {
+          if (firstWord && currentTime < firstWord.previewStart - 0.2) {
             upcomingIndex = line.index;
             break;
           }
@@ -2053,12 +2053,12 @@
         if (!Number.isFinite(displayStart)) {
           return;
         }
-        const displayEnd = displayStart + Math.max(
-          isWordPlaced(state.selectedWordIndex) && Number.isFinite(selected.start) && Number.isFinite(selected.end)
-            ? selected.end - selected.start
-            : (selected.duration || 0.12),
-          0.12,
-        );
+        const isDraggingThis = state.wordDrag && state.wordDrag.wordIndex === state.selectedWordIndex;
+        const displayDuration = (isDraggingThis || !isWordPlaced(state.selectedWordIndex))
+          ? (selected.duration || 0.12)
+          : (Number.isFinite(selected.end) && Number.isFinite(selected.start) ? selected.end - selected.start : (selected.duration || 0.12));
+          
+        const displayEnd = displayStart + Math.max(displayDuration, 0.12);
         if (displayEnd < state.displayWindow.start || displayStart > state.displayWindow.end) {
           return;
         }

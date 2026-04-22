@@ -392,7 +392,7 @@ def _build_image_overlay_filter_script(
         t_reveal = float(event.get("t_reveal", -1.0))
         
         if t_promote < 0:
-            t_promote = max(previous_end + 0.2, start_t - 0.5) if previous_end >= 0 else max(0.0, start_t - 0.5)
+            t_promote = max(previous_end + 0.2, start_t - 0.2) if previous_end >= 0 else max(0.0, start_t - 0.2)
             t_promote = min(t_promote, start_t)
         
         if t_reveal < 0:

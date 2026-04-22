@@ -523,29 +523,52 @@ def _sync_manifest_text_with_lyrics(paths: EditorPaths, lyrics_text: str) -> Non
 
     manifest = _read_manifest(paths)
     cleaned_lines = _clean_text_lines(lyrics_text)
-    flattened_words = [token for line in cleaned_lines for token in _split_words(line)]
+    
+    # Flattened words from the NEW text
+    new_words_flat = [token for line in cleaned_lines for token in _split_words(line)]
+    
     existing_words = manifest.get("words", [])
-    if not isinstance(existing_words, list) or len(flattened_words) != len(existing_words):
+    if not isinstance(existing_words, list) or len(new_words_flat) != len(existing_words):
+        LOGGER.warning(f"_sync_manifest_text_with_lyrics: word count mismatch ({len(new_words_flat)} vs {len(existing_words)}). Skipping sync.")
         return
 
+    # Update word texts in place to match the new lyrics (preserving their IDs and timing)
     for index, word in enumerate(existing_words):
         if isinstance(word, dict):
-            word["text"] = flattened_words[index]
+            word["text"] = new_words_flat[index]
 
-    words_by_id = {
-        str(word.get("id", "")): str(word.get("text", "")).strip()
-        for word in existing_words
-        if isinstance(word, dict)
-    }
-
-    for line in manifest.get("lines", []):
-        if not isinstance(line, dict):
-            continue
-        word_ids = [str(word_id) for word_id in line.get("word_ids", [])]
-        if word_ids:
-            line["text"] = " ".join(words_by_id.get(word_id, "").strip() for word_id in word_ids).strip()
-
+    # Rebuild the lines array to match the new line breaks in lyrics_text
+    new_lines = []
+    word_ptr = 0
+    for l_idx, line_text in enumerate(cleaned_lines):
+        line_tokens = _split_words(line_text)
+        line_word_ids = []
+        
+        # Grab the words belonging to this line from the existing pool
+        current_line_words = []
+        for _ in line_tokens:
+            if word_ptr < len(existing_words):
+                w = existing_words[word_ptr]
+                line_word_ids.append(w.get("id"))
+                current_line_words.append(w)
+                word_ptr += 1
+        
+        # Calculate line start/end boundaries from its constituent words
+        l_start = current_line_words[0].get("start", 0) if current_line_words else 0
+        l_end = current_line_words[-1].get("end", 0.1) if current_line_words else 0.1
+        
+        new_lines.append({
+            "id": f"line_{l_idx:03d}",
+            "index": l_idx,
+            "text": line_text,
+            "start": l_start,
+            "end": l_end,
+            "word_ids": line_word_ids
+        })
+    
+    manifest["lines"] = new_lines
     _write_json_atomic(paths.editor_manifest_path, manifest)
+    LOGGER.info(f"_sync_manifest_text_with_lyrics: manifest lines updated to {len(new_lines)} lines")
 
 
 def _rebuild_manifest_from_lyrics(paths: EditorPaths, lyrics_text: str) -> None:
@@ -2053,21 +2076,23 @@ def _resolve_manual_word_windows(
     # Pass 2: Apply Chaining and Padding rules
     windows: dict[str, tuple[float, float, str]] = {}
     for i, word in enumerate(all_resolved):
-        final_end = word["vocal_end"]
+        # Cap natural vocal duration at 2.0 seconds to prevent tails extending into silence
+        natural_dur = word["vocal_end"] - word["start"]
+        vocal_end_capped = word["start"] + min(natural_dur, 2.0)
         
         if i == len(all_resolved) - 1:
-            # Rule: Last word of song ends exactly at its vocal end
-            final_end = word["vocal_end"]
+            # Rule: Last word of song gets exactly 2.0s padding
+            final_end = vocal_end_capped + 2.0
         else:
             next_word = all_resolved[i+1]
             next_start = next_word["start"]
-            gap = next_start - word["vocal_end"]
+            gap = next_start - vocal_end_capped
             
-            if word["is_line_end"] or gap > 1.0:
-                # Rule: End of line or moderate gap ends exactly at vocal end
-                final_end = min(word["vocal_end"], next_start)
+            if word["is_line_end"] or gap > 2.0:
+                # Rule: End of line or large gap gets exactly 2.0s padding (relative to capped vocal end)
+                final_end = min(vocal_end_capped + 2.0, next_start)
             else:
-                # Rule: Chained presentation (tight sequence)
+                # Rule: Chained presentation
                 final_end = next_start
         
         # Final safety check
