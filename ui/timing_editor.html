@@ -938,7 +938,7 @@
         const duration = getWordDuration(word);
         const isCommitted = index < state.placedWordCount;
         const start = isCommitted
-          ? (Number.isFinite(override.start) ? override.start : word.start)
+          ? (Number.isFinite(override.start) ? override.start : (Number.isFinite(word.start) ? word.start : 0))
           : null;
         let end = isCommitted
           ? (Number.isFinite(override.end) ? override.end : word.end)
@@ -1096,12 +1096,6 @@
       const lineToWordIds = new Map(lines.map((_, index) => [index, []]));
 
 
-      flattened.forEach((entry, index) => {
-        const start = Number((index * slotDuration).toFixed(3));
-        let end = Number(((index + 1) * slotDuration).toFixed(3));
-        if (end <= start) {
-          end = Number((start + 0.01).toFixed(3));
-        }
         const id = `word_${String(index).padStart(4, "0")}`;
         lineToWordIds.get(entry.lineIndex).push(id);
         words.push({
@@ -1109,8 +1103,8 @@
           index,
           line_index: entry.lineIndex,
           text: entry.token,
-          start,
-          end,
+          start: null, // No default timing to avoid "mounted" stacking
+          end: null,
         });
       });
 
@@ -1678,9 +1672,14 @@
       }
 
       state.resolvedWords = nextWords;
-      buildOverridesFromResolvedWords();
-      syncResolvedWords(); // Trigger re-chaining
+      commitVisualStateToData();
       return true;
+    }
+
+    function commitVisualStateToData() {
+      buildOverridesFromResolvedWords();
+      syncResolvedWords();
+      renderAll();
     }
 
     function commitCurrentWord(targetStart) {
@@ -2236,7 +2235,8 @@
       window.removeEventListener("pointermove", onWordDragMove);
       window.removeEventListener("pointerup", endWordDrag);
       window.removeEventListener("pointercancel", endWordDrag);
-      renderAll();
+      
+      commitVisualStateToData();
     }
 
     async function fetchJson(url, options) {
