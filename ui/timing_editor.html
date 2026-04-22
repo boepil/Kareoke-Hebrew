@@ -698,7 +698,7 @@
     const MIN_WORD_ORDER_GAP = 0.001;
     const PLAYHEAD_DRAG_SENSITIVITY = 0.2;
     const LYRICS_SOURCE_DEFAULT_URL = "https://shirrim.com/singers/israel-singers/";
-    const LYRICS_TEXT_DEBOUNCE_MS = 250;
+    const LYRICS_TEXT_DEBOUNCE_MS = 500;
 
     const $ = (id) => document.getElementById(id);
 
@@ -1684,12 +1684,22 @@
 
     function commitCurrentWord(targetStart) {
       const currentIndex = state.selectedWordIndex;
-      if (!setWordStart(state.selectedWordIndex, targetStart)) {
-        return false;
-      }
       const wasAlreadyPlaced = currentIndex < state.placedWordCount;
+      
+      // Increment placedWordCount BEFORE setting the word start, 
+      // so that buildOverridesFromResolvedWords includes it!
       if (!wasAlreadyPlaced) {
         state.placedWordCount = Math.min(currentIndex + 1, state.resolvedWords.length);
+      }
+
+      if (!setWordStart(currentIndex, targetStart)) {
+        if (!wasAlreadyPlaced) {
+          state.placedWordCount = currentIndex;
+        }
+        return false;
+      }
+      
+      if (!wasAlreadyPlaced) {
         const nextDraftIndex = Math.min(state.placedWordCount, Math.max(state.resolvedWords.length - 1, 0));
         state.selectedWordIndex = nextDraftIndex;
       } else {
@@ -1714,6 +1724,7 @@
       state.placedWordCount = Math.min(state.selectedWordIndex, state.baseWords.length);
       state.overrides.placed_word_count = state.placedWordCount;
       syncResolvedWords();
+      flushDataLayer();
       renderAll();
     }
 
@@ -2235,7 +2246,6 @@
       window.removeEventListener("pointermove", onWordDragMove);
       window.removeEventListener("pointerup", endWordDrag);
       window.removeEventListener("pointercancel", endWordDrag);
-      
       commitVisualStateToData();
     }
 
@@ -2517,6 +2527,29 @@
       }
     }
 
+    async function flushDataLayer() {
+      try {
+        buildOverridesFromResolvedWords();
+        const payload = {
+          project_id: state.session?.project_id || ui.projectSelect?.value || "",
+          project_name: state.session?.project_name || "",
+          lyrics_text: ui.lyricsText.value.trim(),
+          version: 1,
+          global_offset: 0,
+          placed_word_count: state.placedWordCount,
+          lines: {},
+          words: state.overrides.words,
+        };
+        await fetchJson("/api/overrides", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        console.error("Data flush failed:", e);
+      }
+    }
+
     async function saveProject() {
       try {
         buildOverridesFromResolvedWords();
@@ -2661,8 +2694,23 @@
       if (!selected) {
         return;
       }
-      const changed = commitCurrentWord(ui.audio.currentTime || 0);
+      let targetStart = ui.audio.currentTime || 0;
+
+      // Fix for Mounted Words: Real-time chaining when placing multiple words while paused
+      if (ui.audio.paused && state.selectedWordIndex > 0) {
+        const previousWord = state.resolvedWords[state.selectedWordIndex - 1];
+        if (previousWord && Number.isFinite(previousWord.end)) {
+          // If the playhead hasn't moved past the previous word's start, automatically chain it
+          if (targetStart <= previousWord.start + 0.05) {
+            targetStart = previousWord.end;
+            setPlayheadTime(targetStart);
+          }
+        }
+      }
+
+      const changed = commitCurrentWord(targetStart);
       if (changed) {
+        flushDataLayer();
         renderAll();
       }
     }
