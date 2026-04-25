@@ -322,6 +322,8 @@
       transform: none;
       padding: 0;
       border: 0;
+      min-width: 0;
+      width: max-content;
       background: transparent;
       color: rgba(214, 220, 230, 0.76);
       white-space: nowrap;
@@ -994,8 +996,10 @@
         };
       });
 
-      const currentIndex = Math.min(state.placedWordCount, Math.max(state.resolvedWords.length - 1, 0));
-      state.selectedWordIndex = clamp(currentIndex, 0, Math.max(state.resolvedWords.length - 1, 0));
+      if (!state.wordDrag) {
+        const currentIndex = Math.min(state.placedWordCount, Math.max(state.resolvedWords.length - 1, 0));
+        state.selectedWordIndex = clamp(currentIndex, 0, Math.max(state.resolvedWords.length - 1, 0));
+      }
     }
 
     function getResolvedLines() {
@@ -1760,6 +1764,47 @@
       return word.start;
     }
 
+    function getDisplayEndForWord(index, startTime) {
+      const word = state.resolvedWords[index];
+      if (!word) {
+        return null;
+      }
+      const isPlaced = isWordPlaced(index);
+      const isDragging = state.wordDrag && state.wordDrag.wordIndex === index;
+      if (!isPlaced && index !== state.selectedWordIndex) {
+        return null;
+      }
+      if (!Number.isFinite(startTime)) {
+        return null;
+      }
+      if (isPlaced && !isDragging && Number.isFinite(word.end)) {
+        return word.end;
+      }
+      const vocalEnd = startTime + Math.max(word.duration || 0.12, 0.12);
+      const vocalEndCapped = startTime + Math.min(word.duration || 0.12, 2.0);
+      const nextWord = state.resolvedWords[index + 1];
+      const isLastWord = index === state.resolvedWords.length - 1;
+      const isNextPlaced = nextWord && isWordPlaced(index + 1);
+      if (isLastWord) {
+        return vocalEndCapped + 2.0;
+      }
+      if (isNextPlaced) {
+        const nextStart = getDisplayStartForWord(index + 1);
+        if (!Number.isFinite(nextStart)) {
+          return vocalEndCapped + 2.0;
+        }
+        const gap = nextStart - vocalEndCapped;
+        if (word.isLineEnd || gap > 2.0) {
+          return Math.min(vocalEndCapped + 2.0, nextStart);
+        }
+        return nextStart;
+      }
+      if (word.isLineEnd) {
+        return vocalEndCapped + 2.0;
+      }
+      return vocalEnd;
+    }
+
     function getPreviewWordSnapshot() {
       const snapshot = new Map();
 
@@ -1800,14 +1845,14 @@
         }
         const word = state.resolvedWords[index];
         const rawStart = getDisplayStartForWord(index);
-        const wordDuration = Math.max(word.duration || 0.12, 0.12);
         if (!Number.isFinite(rawStart)) {
           continue;
         }
+        const displayEnd = getDisplayEndForWord(index, rawStart);
         visible.push({
           ...word,
           displayStart: rawStart,
-          displayEnd: rawStart + (isSelectedDraft ? wordDuration + 2.0 : Math.max(word.end - word.start, 0.01)),
+          displayEnd: Number.isFinite(displayEnd) ? displayEnd : rawStart + Math.max(word.duration || 0.12, 0.12),
           isPlaced: isWordPlaced(index),
           isActive: index === state.selectedWordIndex,
         });
@@ -1988,9 +2033,13 @@
         }
         const leftPercent = timeToPercent(word.displayStart);
         element.style.left = `${leftPercent}%`;
-        element.textContent = word.text;
+        element.style.width = "max-content"; // Ensure button shrinks exactly to text
+        
+        // Strip out invisible formatting characters that might bloat the width
+        const cleanText = String(word.text || "").replace(/[\s\u200B-\u200D\uFEFF\u00A0]+/g, '');
+        element.textContent = cleanText;
         element.dataset.wordId = word.id;
-        element.dir = inferDirection(word.text);
+        element.dir = inferDirection(cleanText);
         if (word.isPlaced) {
           element.addEventListener("pointerdown", (event) => {
             beginWordDrag(event, word.index);
@@ -1998,6 +2047,7 @@
         }
         element.addEventListener("click", (event) => {
           event.preventDefault();
+          if (state._suppressClick) return;
           setSelectedWord(word.index);
         });
         ui.wordLayer.appendChild(element);
@@ -2063,17 +2113,17 @@
         if (!Number.isFinite(displayStart)) {
           return;
         }
-        const isDraggingThis = state.wordDrag && state.wordDrag.wordIndex === state.selectedWordIndex;
-        const displayDuration = (isDraggingThis || !isWordPlaced(state.selectedWordIndex))
-          ? (selected.duration || 0.12)
-          : (Number.isFinite(selected.end) && Number.isFinite(selected.start) ? selected.end - selected.start : (selected.duration || 0.12));
-          
-        const displayEnd = displayStart + Math.max(displayDuration, 0.12);
+        const displayEnd = getDisplayEndForWord(state.selectedWordIndex, displayStart);
+        if (!Number.isFinite(displayEnd)) {
+          return;
+        }
         if (displayEnd < state.displayWindow.start || displayStart > state.displayWindow.end) {
           return;
         }
+        
         const startX = (timeToPercent(displayStart) / 100) * width;
         const endX = (timeToPercent(displayEnd) / 100) * width;
+
         context.fillStyle = "rgba(228, 178, 29, 0.12)";
         context.fillRect(startX, 0, Math.max(endX - startX, 2), height);
       }
@@ -2219,6 +2269,7 @@
         originalStarts: state.resolvedWords.map(w => w.start),
       };
       state.selectedWordIndex = wordIndex;
+      state._suppressClick = true;
       if (event.currentTarget && typeof event.currentTarget.setPointerCapture === "function") {
         event.currentTarget.setPointerCapture(event.pointerId);
       }
@@ -2242,11 +2293,24 @@
       if (!state.wordDrag || (event.pointerId !== undefined && event.pointerId !== state.wordDrag.pointerId)) {
         return;
       }
+      const draggedIndex = state.wordDrag.wordIndex;
       state.wordDrag = null;
+      state._suppressClick = false;
       window.removeEventListener("pointermove", onWordDragMove);
       window.removeEventListener("pointerup", endWordDrag);
       window.removeEventListener("pointercancel", endWordDrag);
+<<<<<<< HEAD
+=======
+<<<<<<< Updated upstream
+      
+>>>>>>> e707bed (fix: resolve yellow block visibility and width during word drag)
       commitVisualStateToData();
+=======
+      flushDataLayer();
+      renderAll();
+      state.selectedWordIndex = draggedIndex;
+      renderAll();
+>>>>>>> Stashed changes
     }
 
     async function fetchJson(url, options) {
