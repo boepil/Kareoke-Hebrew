@@ -1,0 +1,1 @@
+[2026-04-22 17:21:53.268117] Listing projects from: D:\_PROJECTS\My\ai\Kareoke_Hebrew\data\projects (exists: True)
