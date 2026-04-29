@@ -348,7 +348,7 @@ def _json_response(payload: Mapping[str, Any], status: int = 200) -> Response:
     return Response(
         json.dumps(payload, ensure_ascii=False, indent=2),
         status=status,
-        mimetype="application/json",
+        content_type="application/json; charset=utf-8",
     )
 
 

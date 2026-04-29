@@ -1099,8 +1099,7 @@
       const words = [];
       const lineToWordIds = new Map(lines.map((_, index) => [index, []]));
 
-
-        const id = `word_${String(index).padStart(4, "0")}`;
+      flattened.forEach((entry, index) => {        const id = `word_${String(index).padStart(4, "0")}`;
         lineToWordIds.get(entry.lineIndex).push(id);
         words.push({
           id,
@@ -2299,18 +2298,10 @@
       window.removeEventListener("pointermove", onWordDragMove);
       window.removeEventListener("pointerup", endWordDrag);
       window.removeEventListener("pointercancel", endWordDrag);
-<<<<<<< HEAD
-=======
-<<<<<<< Updated upstream
-      
->>>>>>> e707bed (fix: resolve yellow block visibility and width during word drag)
-      commitVisualStateToData();
-=======
       flushDataLayer();
       renderAll();
       state.selectedWordIndex = draggedIndex;
       renderAll();
->>>>>>> Stashed changes
     }
 
     async function fetchJson(url, options) {
