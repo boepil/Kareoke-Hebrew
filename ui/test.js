@@ -1,910 +1,4 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Manual Karaoke Editor</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --text: #f3ecdf;
-      --muted: #92a0b6;
-      --accent: #e4b21d;
-      --warn: #ff8f78;
-      --line: rgba(255, 255, 255, 0.08);
-      --r: 24px;
-      --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
-      --ui: "Aptos", "Segoe UI", sans-serif;
-      --display: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", sans-serif;
-    }
 
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      color: var(--text);
-      font: 14px/1.45 var(--ui);
-      background:
-        radial-gradient(1200px 700px at 0% 0%, rgba(228, 178, 29, 0.12), transparent 54%),
-        radial-gradient(900px 700px at 100% 0%, rgba(71, 119, 190, 0.10), transparent 48%),
-        linear-gradient(180deg, #10151f 0%, #090c11 60%, #07090d 100%);
-    }
-
-    button, input, textarea, select { font: inherit; }
-    button {
-      border: 0;
-      border-radius: 7px;
-      padding: 2px 14px;
-      background: var(--accent);
-      color: #241906;
-      font-weight: 800;
-      line-height: 1.45;
-      cursor: pointer;
-      min-width: 52px;
-      text-align: center;
-      direction: inherit;
-      unicode-bidi: isolate;
-    }
-    button.secondary { background: rgba(255, 255, 255, 0.08); color: var(--text); }
-    #zoomOut, #zoomIn, #zoomReset { padding: 3px 8px; font-size: 11px; min-width: 36px; }
-    button.warn { background: var(--warn); color: #2b0d08; }
-    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); min-width: 52px; text-align: center; }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
-
-    input, textarea, select {
-      width: 100%;
-      max-width: 100%;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(0, 0, 0, 0.2);
-      color: var(--text);
-      padding: 11px 12px;
-      outline: none;
-    }
-    .url-input {
-      direction: ltr;
-      unicode-bidi: plaintext;
-      text-align: left;
-    }
-    textarea { min-height: 300px; resize: vertical; }
-
-    .shell {
-      width: min(1540px, calc(100vw - 28px));
-      margin: 14px auto;
-      padding: 14px;
-      border-radius: 30px;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-      box-shadow: var(--shadow);
-    }
-    .app {
-      display: flex;
-      gap: 20px;
-      min-height: calc(100vh - 56px);
-      align-items: start;
-    }
-    .rail {
-      flex: 0 0 292px;
-      width: 292px;
-      min-width: 292px;
-      z-index: 2;
-      overflow: hidden;
-    }
-    .workspace {
-      flex: 1;
-      min-width: 0;
-      z-index: 1;
-      display: flex;
-      flex-direction: row;
-      gap: 20px;
-      align-items: start;
-    }
-    .workspace > .section {
-      flex: 1;
-      min-width: 0;
-    }
-    .rail > *, .workspace > * { min-width: 0; }
-    .drawer {
-      flex: 0 0 320px;
-      width: 320px;
-      min-width: 320px;
-      z-index: 2;
-      display: flex;
-      flex-direction: column;
-      border-radius: var(--r);
-      border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
-      position: relative;
-      height: 800px;
-      min-height: 400px;
-      resize: vertical;
-      overflow: hidden;
-    }
-    .drawer[hidden] {
-      display: none !important;
-    }
-    .drawer-tabs {
-      display: flex;
-      border-bottom: 1px solid var(--line);
-    }
-    .drawer-tab {
-      flex: 1;
-      padding: 14px;
-      text-align: center;
-      color: var(--muted);
-      cursor: default;
-      font-weight: 700;
-      border-bottom: 2px solid transparent;
-    }
-    .drawer-tab.active {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
-    }
-    .drawer-close {
-      position: absolute;
-      top: 14px;
-      right: 14px;
-      background: transparent;
-      color: var(--muted);
-      padding: 4px;
-      min-width: auto;
-    }
-    .drawer-close:hover {
-      color: var(--text);
-      background: rgba(255,255,255,0.1);
-    }
-    .drawer-header {
-      padding: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--line);
-    }
-    .drawer-header-title {
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.1em;
-      color: var(--muted);
-      text-transform: uppercase;
-    }
-    .drawer-content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 0;
-    }
-    .drawer-content::-webkit-scrollbar {
-      width: 8px;
-    }
-    .drawer-content::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .drawer-content::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 4px;
-    }
-    .drawer-content::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.25);
-    }
-    .lyrics-line {
-      display: flex;
-      padding: 8px 16px;
-      cursor: pointer;
-      gap: 12px;
-      align-items: flex-start;
-    }
-    .lyrics-line:hover {
-      background: rgba(255,255,255,0.03);
-    }
-    .lyrics-line.active {
-      background: rgba(228, 178, 29, 0.12);
-      border-left: 3px solid var(--accent);
-      padding-left: 13px;
-    }
-    .lyrics-line-number {
-      color: var(--muted);
-      font-size: 12px;
-      font-variant-numeric: tabular-nums;
-      width: 24px;
-      text-align: right;
-      padding-top: 2px;
-    }
-    .lyrics-line-text {
-      flex: 1;
-      color: var(--text);
-      font: 700 16px/1.4 var(--display);
-      text-align: right;
-      direction: rtl;
-      background: transparent;
-      border: 1px solid transparent;
-      outline: none;
-      padding: 0 4px;
-      border-radius: 4px;
-      width: 100%;
-      min-width: 0;
-    }
-    .lyrics-line-text:focus {
-      border-color: rgba(255,255,255,0.2);
-      background: rgba(0,0,0,0.2);
-    }
-    .lyrics-line.active .lyrics-line-text {
-      color: var(--accent);
-    }
-    .drawer-footer {
-      padding: 16px;
-      border-top: 1px solid var(--line);
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      align-items: center;
-    }
-    .drawer-footer button {
-      width: 100%;
-      padding: 12px;
-      font-size: 16px;
-    }
-    .drawer-footer-meta {
-      font-size: 11px;
-      color: var(--muted);
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .shortcut-hint {
-      position: absolute;
-      bottom: 20px;
-      right: 20px;
-      color: var(--muted);
-      font-size: 12px;
-      z-index: 10;
-      opacity: 0.7;
-    }
-    .shortcut-hint[hidden] {
-      display: none;
-    }
-    .section {
-      border-radius: var(--r);
-      border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
-      padding: 16px;
-    }
-    .eyebrow {
-      margin: 0 0 8px;
-      color: var(--accent);
-      text-transform: uppercase;
-      letter-spacing: 0.13em;
-      font-size: 11px;
-      font-weight: 800;
-    }
-    h1, h2, p { margin: 0; }
-    h1 { font: 700 clamp(22px, 2.1vw, 30px) / 1.02 var(--display); letter-spacing: -0.03em; }
-    h2 { font: 700 22px / 1.05 var(--display); letter-spacing: -0.02em; }
-    .muted { color: var(--muted); }
-    .stack, .actions { display: grid; gap: 12px; }
-    .toolbar { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
-    .toolbar-left, .toolbar-right { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
-    .toolbar-middle {
-      flex: 1;
-      display: flex;
-      justify-content: center;
-      min-width: 80px;
-      padding: 0 8px;
-      overflow: hidden;
-    }
-    .toolbar-middle .chip {
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      direction: rtl;
-      unicode-bidi: isolate;
-    }
-    .toolbar.split { justify-content: space-between; align-items: center; }
-    .toolbar-group { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; }
-    .stem-mix {
-      display: inline-flex;
-      align-items: center;
-      gap: 0;
-      padding: 6px 8px;
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.03);
-      min-width: 150px;
-    }
-    .stem-mix input[type="range"] {
-      width: 132px;
-      accent-color: var(--accent);
-      padding: 0;
-      background: transparent;
-      border: 0;
-    }
-    .field { display: grid; gap: 7px; }
-    .title-block { display: grid; gap: 6px; margin-bottom: 10px; }
-    .title-block h1 { white-space: nowrap; }
-    .field label {
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.11em;
-      text-transform: uppercase;
-    }
-    .field-link {
-      color: var(--muted);
-      font-size: 12px;
-      text-decoration: none;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-    }
-    .field-link:hover {
-      color: var(--accent);
-    }
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--muted);
-      font-size: 12px;
-      min-width: 52px;
-      text-align: center;
-      justify-content: center;
-    }
-    .chip.ok { color: #d6f5d2; background: rgba(143, 208, 143, 0.16); }
-    .chip.warn { color: #ffd1c5; background: rgba(255, 143, 120, 0.14); }
-    .chip.selected {
-      background: rgba(228, 178, 29, 0.14);
-      border: 1px solid rgba(228, 178, 29, 0.2);
-      font-weight: 700;
-    }
-    .chip.selected .selected-word-text { color: var(--accent); }
-    .chip.selected .selected-word-count {
-      color: var(--text);
-      margin-inline-start: 1.1em;
-    }
-
-    .stage, .editor { display: grid; gap: 14px; }
-    .preview {
-      min-height: 280px;
-      height: 280px;
-      border-radius: 22px;
-      border: 1px solid rgba(255,255,255,0.05);
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.15));
-      padding: 18px 24px;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-      contain: layout paint;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
-    .preview.empty {
-      align-items: center;
-      direction: ltr;
-      font: 500 17px/1.4 var(--ui);
-      color: rgba(255,255,255,0.45);
-    }
-    .preview-scroll {
-      position: absolute;
-      top: 50%;
-      left: 0;
-      right: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
-      transform: translateY(-50%);
-    }
-    .preview-line {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 0.24em;
-      min-height: 1.2em;
-      width: 100%;
-      font: 700 clamp(30px, 3.4vw, 50px) / 1.14 var(--display);
-      letter-spacing: -0.03em;
-      text-align: center;
-      transition: opacity 0.4s ease, transform 0.4s ease;
-      opacity: 0;
-      transform: scale(0.95);
-    }
-    .preview-line.past {
-      opacity: 0;
-      transform: translateY(-30px) scale(0.9);
-      pointer-events: none;
-    }
-    .preview-line.current {
-      opacity: 1;
-      transform: scale(1);
-    }
-    .preview-line.upcoming {
-      opacity: 0.34;
-      font-size: clamp(24px, 2.6vw, 38px);
-      transform: scale(1);
-    }
-    .preview-line.standby {
-      opacity: 0;
-      transform: translateY(30px) scale(0.95);
-    }
-    .preview-word { opacity: 0.34; transition: opacity 120ms ease, color 120ms ease, transform 120ms ease; }
-    .preview-word.hidden { visibility: hidden; opacity: 0; }
-    .preview-word.done { color: rgba(243, 236, 223, 0.95); opacity: 1; }
-    .preview-word.current {
-      color: var(--accent);
-      opacity: 1;
-      transform: translateY(-1px);
-      text-shadow: 0 0 18px rgba(228, 178, 29, 0.3);
-    }
-
-    .editor-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-    .project-title-input {
-      width: 100%;
-      padding: 12px 16px;
-      border-radius: 18px;
-      border: 1px solid rgba(255,255,255,0.06);
-      background: rgba(255,255,255,0.03);
-      color: var(--text);
-      font: 700 26px/1.1 var(--display);
-      text-align: center;
-      letter-spacing: -0.02em;
-    }
-    .project-title-input::placeholder {
-      color: rgba(255,255,255,0.36);
-    }
-    .time-readout {
-      display: inline-flex;
-      align-items: center;
-      min-width: 88px;
-      color: var(--muted);
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-    }
-    .icon-button {
-      min-width: 30px;
-      padding-inline: 8px;
-      font-size: 18px;
-      line-height: 1;
-    }
-    .wave-shell {
-      position: relative;
-      border-radius: 22px;
-      border: 1px solid var(--line);
-      background: rgba(8, 11, 17, 0.9);
-      padding: 18px 16px 14px;
-      overflow: hidden;
-    }
-    .word-layer {
-      position: relative;
-      height: 94px;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
-      overflow: hidden;
-    }
-    .word {
-      position: absolute;
-      top: 18px;
-      transform: none;
-      padding: 0 4px;
-      border: 1px dashed rgba(255, 255, 255, 0.1);
-      border-radius: 6px;
-      min-width: 0;
-      background: rgba(255, 255, 255, 0.03);
-      color: rgba(214, 220, 230, 0.76);
-      white-space: nowrap;
-      cursor: default;
-      user-select: none;
-      direction: auto;
-      text-align: center;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      font: 700 20px/1 var(--display);
-      letter-spacing: -0.02em;
-      text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
-    }
-    .word.draggable {
-      cursor: grab;
-    }
-    .word.draggable:active {
-      cursor: grabbing;
-    }
-    .word.active {
-      color: var(--accent);
-      background: rgba(228, 178, 29, 0.12);
-      border: 1px solid rgba(228, 178, 29, 0.5);
-      text-shadow: 0 0 18px rgba(228, 178, 29, 0.35);
-    }
-    .word.active.draft {
-      color: var(--warn);
-      background: rgba(255, 143, 120, 0.12);
-      border: 1px dashed rgba(255, 143, 120, 0.5);
-      text-shadow: 0 0 18px rgba(255, 143, 120, 0.42);
-    }
-    .word.active.done { color: var(--accent); }
-    .word.done { color: rgba(214, 220, 230, 0.84); }
-    .word.dragging,
-    .word.dragging.done,
-    .word.active.dragging,
-    .word.active.dragging.done {
-      color: var(--warn);
-      background: rgba(255, 143, 120, 0.2);
-      border: 1px solid var(--warn);
-      text-shadow: 0 0 18px rgba(255, 143, 120, 0.42);
-      z-index: 2;
-    }
-    .resize-handle {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      width: 8px;
-      cursor: ew-resize;
-      background: rgba(255, 255, 255, 0.1);
-      z-index: 3;
-    }
-    .resize-handle-left {
-      left: 0;
-      border-right: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .resize-handle-right {
-      right: 0;
-      border-left: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .resize-handle:hover, .resize-handle:active {
-      background: rgba(228, 178, 29, 0.6);
-    }
-
-    canvas {
-      width: 100%;
-      display: block;
-      height: 240px;
-      background: #090c12;
-      border-radius: 16px;
-      margin-top: 14px;
-    }
-    .playhead {
-      position: absolute;
-      top: 18px;
-      bottom: 14px;
-      width: 2px;
-      left: 50%;
-      background: var(--warn);
-      pointer-events: auto;
-      z-index: 3;
-      cursor: ew-resize;
-    }
-    .playhead::before {
-      content: "";
-      position: absolute;
-      top: -10px;
-      left: 50%;
-      width: 14px;
-      height: 14px;
-      transform: translateX(-50%) rotate(45deg);
-      border-radius: 2px;
-      background: var(--warn);
-    }
-    .small { font-size: 12px; color: var(--muted); }
-    .pan { margin-top: 12px; }
-    .pan input[type="range"] {
-      width: 100%;
-      accent-color: var(--accent);
-      padding: 0;
-      background: transparent;
-      border: 0;
-    }
-    .export-status {
-      display: grid;
-      gap: 8px;
-      padding: 12px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.03);
-    }
-    .export-status[hidden] {
-      display: none;
-    }
-    .pipeline-status {
-      display: grid;
-      gap: 10px;
-      padding: 12px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.025);
-    }
-    .pipeline-stages {
-      display: grid;
-      gap: 8px;
-    }
-    .pipeline-stage {
-      display: grid;
-      gap: 6px;
-      padding: 10px;
-      border-radius: 14px;
-      border: 1px solid rgba(255,255,255,0.05);
-      background: rgba(255,255,255,0.03);
-    }
-    .pipeline-stage-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: center;
-      min-width: 0;
-    }
-    .pipeline-stage-name {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--text);
-      font-weight: 700;
-      font-size: 13px;
-    }
-    .pipeline-stage-meta {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 11px;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-    .pipeline-stage-status {
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.06);
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .pipeline-stage-status.running {
-      color: #ffd8b6;
-      background: rgba(255, 143, 120, 0.14);
-    }
-    .pipeline-stage-status.done,
-    .pipeline-stage-status.skipped {
-      color: #d6f5d2;
-      background: rgba(143, 208, 143, 0.16);
-    }
-    .pipeline-stage-status.pending {
-      color: var(--muted);
-    }
-    .pipeline-stage-status.error {
-      color: #ffd1c5;
-      background: rgba(255, 143, 120, 0.18);
-    }
-    .pipeline-stage-bar {
-      height: 5px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.06);
-      overflow: hidden;
-    }
-    .pipeline-stage-fill {
-      height: 100%;
-      width: 0%;
-      border-radius: inherit;
-      background: linear-gradient(90deg, rgba(228, 178, 29, 0.65), rgba(255, 143, 120, 0.9));
-      transition: width 160ms ease;
-    }
-    .pipeline-stage-fill.running {
-      background-size: 200% 100%;
-      background-image: linear-gradient(90deg, rgba(255, 143, 120, 0.55), rgba(228, 178, 29, 0.95), rgba(255, 143, 120, 0.55));
-      animation: pipeline-shift 1.2s linear infinite;
-    }
-    .pipeline-stage-fill.done,
-    .pipeline-stage-fill.skipped,
-    .pipeline-stage-fill.error {
-      width: 100%;
-    }
-    .pipeline-spin {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      border: 2px solid rgba(255, 255, 255, 0.18);
-      border-top-color: var(--accent);
-      animation: pipeline-spin 0.8s linear infinite;
-      flex: none;
-    }
-    .pipeline-stage.done .pipeline-spin,
-    .pipeline-stage.skipped .pipeline-spin,
-    .pipeline-stage.pending .pipeline-spin,
-    .pipeline-stage.error .pipeline-spin {
-      animation: none;
-      border-top-color: transparent;
-      opacity: 0.35;
-    }
-    @keyframes pipeline-spin {
-      to { transform: rotate(360deg); }
-    }
-    @keyframes pipeline-shift {
-      from { background-position: 0 0; }
-      to { background-position: 200% 0; }
-    }
-    .progress-bar {
-      width: 100%;
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.08);
-      overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%;
-      width: 0%;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #e4b21d 0%, #ffd76a 100%);
-      transition: width 220ms ease;
-    }
-    .progress-meta {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .path-card {
-      display: grid;
-      gap: 8px;
-      padding: 12px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.03);
-    }
-    .rail-divider {
-      height: 1px;
-      margin: 2px 0 4px;
-      background: var(--line);
-    }
-    .path-value {
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.35;
-      word-break: break-word;
-    }
-    audio {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    @media (max-width: 940px) {
-      .shell { width: calc(100vw - 16px); margin: 8px auto; padding: 10px; }
-      .app { flex-direction: column; gap: 16px; }
-      .rail { flex: 0 0 auto; width: 100%; min-width: 0; }
-      .workspace { width: 100%; min-width: 0; }
-    }
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <div class="app">
-      <aside class="rail">
-        <section class="section">
-          <div class="title-block">
-            <h1>Waveform Karaoke</h1>
-          </div>
-          <div class="stack">
-            <div class="field">
-              <label for="projectSelect">Saved Projects</label>
-              <select id="projectSelect">
-                <option value="">No saved projects</option>
-              </select>
-            </div>
-          </div>
-          <div class="actions">
-            <button id="saveProject">Save Project</button>
-            <button class="warn" id="deleteProject">Delete Project</button>
-            <button id="exportMp4">Export MP4</button>
-            <button class="ghost" id="resetAll">Reset All</button>
-          </div>
-          <div class="export-status" id="exportStatus" hidden>
-            <div class="progress-meta">
-              <span id="exportStage">Idle</span>
-              <span id="exportPercent">0%</span>
-            </div>
-            <div class="progress-bar"><div class="progress-fill" id="exportProgressFill"></div></div>
-            <div class="small" id="exportDetail">No export running.</div>
-          </div>
-          <div class="pipeline-status" id="pipelineStatus">
-            <div class="progress-meta">
-              <span id="pipelineStage">Pipeline idle</span>
-              <span id="pipelineElapsed">0:00</span>
-            </div>
-            <div class="progress-bar"><div class="progress-fill" id="pipelineProgressFill"></div></div>
-            <div class="small" id="pipelineDetail">No pipeline running.</div>
-            <div class="pipeline-stages" id="pipelineStages"></div>
-          </div>
-          <div class="path-card">
-            <div class="chip" id="projectStatus">No project loaded.</div>
-            <div class="path-value" id="pathsStatus">No output yet.</div>
-          </div>
-          <div class="rail-divider"></div>
-          <div class="stack">
-            <div class="field">
-              <label for="youtubeUrl">YouTube URL</label>
-              <input class="url-input" id="youtubeUrl" type="url" dir="ltr" placeholder="Paste a YouTube link">
-              <button id="importProject">Create Project</button>
-            </div>
-            <div class="field">
-              <label for="audioFile">Audio File</label>
-              <input id="audioFile" type="file" accept="audio/*">
-            </div>
-            <div class="field">
-              <label for="lyricsSourceLink">Lyrics Source</label>
-        <a class="field-link" id="lyricsSourceLink" href="https://shirrim.com/singers/israel-singers/" target="_blank" rel="noopener noreferrer">https://shirrim.com/singers/israel-singers/</a>
-            </div>
-            <button id="aiFirstPass">AI Pass</button>
-            <button id="stopAiPass" class="warn" hidden>Stop AI Pass</button>
-            <textarea id="lyricsText" hidden></textarea>
-          </div>
-        </section>
-      </aside>
-
-      <main class="workspace">
-        <section class="section editor">
-          <input id="projectName" class="project-title-input" type="text" placeholder="Project name">
-          <div class="preview empty" id="preview">Import a project to begin.</div>
-          <audio id="audio" controls preload="metadata"></audio>
-          <audio id="vocalsAudio" preload="metadata"></audio>
-          <audio id="musicAudio" preload="metadata"></audio>
-<div class="toolbar">
-              <div class="toolbar-left">
-                <div class="time-readout" id="audioTime">0:00 / 0:00</div>
-                <button class="secondary icon-button" id="rewindStart" aria-label="Go to Beginning">⏮</button>
-                <button class="secondary icon-button" id="playPause" aria-label="Play or Pause">▶</button>
-                <button class="secondary" id="back2">-2s</button>
-                <button class="secondary" id="jumpWord">Sync</button>
-                <button class="warn" id="placeWord">Commit</button>
-                <button class="secondary" id="resetWord">Reset→</button>
-                <button class="secondary" id="prevWord">Prev</button>
-                <button class="secondary" id="nextWord">Next</button>
-              </div>
-              <div class="toolbar-middle">
-                <div class="chip selected" id="selectedWordLabel">Selected word: none</div>
-              </div>
-              <div class="toolbar-right">
-                <button class="secondary" id="lastWord">Last</button>
-                <div class="stem-mix">
-                  <input id="stemMix" type="range" min="-1" max="1" step="0.01" value="0">
-                </div>
-                <button class="secondary" id="zoomOut" aria-label="Zoom Out">-</button>
-                <button class="secondary" id="zoomIn" aria-label="Zoom In">+</button>
-                <button class="secondary" id="zoomReset" aria-label="Reset Zoom">100</button>
-              </div>
-            </div>
-          <div class="wave-shell" id="waveShell">
-            <div class="word-layer" id="wordLayer"></div>
-            <div class="playhead" id="playhead"></div>
-            <canvas id="waveCanvas" width="1280" height="240"></canvas>
-            <div class="pan">
-              <input id="wavePan" type="range" min="0" max="0" step="0.01" value="0">
-            </div>
-          </div>
-        </section>
-        <aside class="drawer" id="rightDrawer" hidden>
-          <div class="drawer-tabs">
-            <div class="drawer-tab active">Lyrics</div>
-          </div>
-          <button class="drawer-close" id="closeDrawer" aria-label="Close">✕</button>
-          <div class="drawer-header">
-            <div class="drawer-header-title">LYRICS EDITOR ⓘ</div>
-          </div>
-          <div class="drawer-content" id="lyricsList"></div>
-          <div class="drawer-footer">
-            <button id="saveLyrics">Save Lyrics</button>
-            <div class="drawer-footer-meta" id="saveLyricsMeta">
-              Not saved yet
-            </div>
-          </div>
-        </aside>
-      </main>
-    </div>
-    <div class="shortcut-hint" id="shortcutHint">Press 'L' to open lyrics editor</div>
-  </div>
-
-  <script>
     const DEFAULT_ZOOM_SECONDS = 18;
     const MIN_ZOOM_SECONDS = 0.35;
     const MIN_WORD_ORDER_GAP = 0.001;
@@ -968,12 +62,6 @@
       resetWord: $("resetWord"),
       resetAll: $("resetAll"),
       stemMix: $("stemMix"),
-      rightDrawer: $("rightDrawer"),
-      closeDrawer: $("closeDrawer"),
-      lyricsList: $("lyricsList"),
-      saveLyrics: $("saveLyrics"),
-      saveLyricsMeta: $("saveLyricsMeta"),
-      shortcutHint: $("shortcutHint"),
     };
 
     const state = {
@@ -990,7 +78,6 @@
       displayWindow: { start: 0, end: DEFAULT_ZOOM_SECONDS },
       playheadDrag: null,
       wordDrag: null,
-      durationDrag: null,
       redrawQueued: false,
       exportPoller: null,
       pipelinePoller: null,
@@ -1002,8 +89,6 @@
       lyricsTextDebounce: null,
       stemMixValue: 0,
       stemMixAvailable: false,
-      drawerOpen: false,
-      lastSaveTimeMs: null,
     };
 
     function clamp(value, min, max) {
@@ -1164,26 +249,22 @@
         let end = isCommitted
           ? (Number.isFinite(override.end) ? override.end : word.end)
           : null;
-        const explicitEnd = isCommitted && Number.isFinite(override.explicit_end) ? override.explicit_end : undefined;
 
         return {
           ...word,
           duration,
           start,
           // Vocal end MUST be based on the natural duration to detect gaps correctly.
+          // Using override.end here would cause circular logic since override.end 
+          // might already be 'chained' to the next word.
           vocalEnd: Number.isFinite(start) ? start + duration : null,
           isLineEnd: lineEndWordIds.has(word.id),
-          _explicitEnd: explicitEnd,
         };
       });
 
       // Pass 2: Refine end times based on the "Chained Timing" and "2s Padding" rules
       state.resolvedWords = words.map((word, index) => {
         if (word.start === null) return word;
-
-        if (word._explicitEnd !== undefined) {
-           return { ...word, end: word._explicitEnd };
-        }
 
         const nextWord = words[index + 1];
         const isLastWord = index === words.length - 1;
@@ -1815,7 +896,6 @@
         words[word.id] = {
           start: Number(word.start.toFixed(3)),
           end: Number(word.end.toFixed(3)),
-          ...(word._explicitEnd !== undefined && { explicit_end: Number(word._explicitEnd.toFixed(3)) })
         };
       });
       state.overrides.words = words;
@@ -1852,76 +932,43 @@
 
       const duration = getAudioDuration();
       const nextWords = state.resolvedWords.map((word) => ({ ...word }));
-      const starts = [...state.wordDrag.originalStarts];
-      const ends = [...state.wordDrag.originalEnds];
+      const starts = nextWords.map((word, wordIndex) => {
+        if (wordIndex >= committedCount || !Number.isFinite(word.start)) {
+          return null;
+        }
+        return state.wordDrag && state.wordDrag.originalStarts ? state.wordDrag.originalStarts[wordIndex] : word.start;
+      });
 
       starts[index] = Math.max(targetStart, 0);
-      ends[index] = starts[index] + (state.wordDrag.originalEnds[index] - state.wordDrag.originalStarts[index]);
-
-      for (let wordIndex = index + 1; wordIndex < committedCount; wordIndex += 1) {
-        if (starts[wordIndex] < ends[wordIndex - 1]) {
-          const shift = ends[wordIndex - 1] - starts[wordIndex];
-          starts[wordIndex] += shift;
-          ends[wordIndex] += shift;
-        }
-      }
-
-      for (let wordIndex = index + 1; wordIndex < committedCount; wordIndex += 1) {
-        const gap = starts[wordIndex] - ends[wordIndex - 1];
-        if (gap > 0) {
-           const originalGap = state.wordDrag.originalStarts[wordIndex] - state.wordDrag.originalEnds[wordIndex - 1];
-           if (originalGap <= 0.05) {
-              starts[wordIndex] = ends[wordIndex - 1];
-           } else {
-              break;
-           }
-        } else {
-           break;
-        }
-      }
 
       for (let wordIndex = index - 1; wordIndex >= 0; wordIndex -= 1) {
-        if (ends[wordIndex] > starts[wordIndex + 1]) {
-          const shift = ends[wordIndex] - starts[wordIndex + 1];
-          starts[wordIndex] -= shift;
-          ends[wordIndex] -= shift;
-        }
-      }
-
-      for (let wordIndex = index - 1; wordIndex >= 0; wordIndex -= 1) {
-        const gap = starts[wordIndex + 1] - ends[wordIndex];
-        if (gap > 0) {
-           const originalGap = state.wordDrag.originalStarts[wordIndex + 1] - state.wordDrag.originalEnds[wordIndex];
-           if (originalGap <= 0.05) {
-              ends[wordIndex] = starts[wordIndex + 1];
-           } else {
-              break;
-           }
-        } else {
-           break;
-        }
+        starts[wordIndex] = Math.min(starts[wordIndex], starts[wordIndex + 1] - MIN_WORD_ORDER_GAP);
       }
 
       if (starts[0] < 0) {
         const shiftRight = -starts[0];
-        for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
+        for (let wordIndex = 0; wordIndex <= index; wordIndex += 1) {
           starts[wordIndex] += shiftRight;
-          ends[wordIndex] += shiftRight;
         }
       }
 
+      for (let wordIndex = index + 1; wordIndex < committedCount; wordIndex += 1) {
+        starts[wordIndex] = Math.max(starts[wordIndex], starts[wordIndex - 1] + MIN_WORD_ORDER_GAP);
+      }
+
       if (Number.isFinite(duration) && duration > 0) {
-        const overflow = ends[committedCount - 1] - duration;
+        const lastWord = nextWords[committedCount - 1];
+        const lastDuration = Math.max(lastWord.duration || getWordDuration(state.baseWords[committedCount - 1] || lastWord), 0.12);
+        const maxLastStart = Math.max(duration - lastDuration, 0);
+        const overflow = starts[committedCount - 1] - maxLastStart;
         if (overflow > 0) {
           for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
             starts[wordIndex] -= overflow;
-            ends[wordIndex] -= overflow;
           }
           if (starts[0] < 0) {
             const shiftRight = -starts[0];
             for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
               starts[wordIndex] += shiftRight;
-              ends[wordIndex] += shiftRight;
             }
           }
         }
@@ -1929,7 +976,6 @@
 
       for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
         nextWords[wordIndex].start = Number(starts[wordIndex].toFixed(3));
-        nextWords[wordIndex]._explicitEnd = Number(ends[wordIndex].toFixed(3));
       }
 
       state.resolvedWords = nextWords;
@@ -2027,13 +1073,14 @@
         return null;
       }
       const isPlaced = isWordPlaced(index);
+      const isDragging = state.wordDrag && state.wordDrag.wordIndex === index;
       if (!isPlaced && index !== state.selectedWordIndex) {
         return null;
       }
       if (!Number.isFinite(startTime)) {
         return null;
       }
-      if (isPlaced && Number.isFinite(word.end)) {
+      if (isPlaced && !isDragging && Number.isFinite(word.end)) {
         return word.end;
       }
       const vocalEnd = startTime + Math.max(word.duration || 0.12, 0.12);
@@ -2271,6 +1318,9 @@
         const element = document.createElement("button");
         element.type = "button";
         element.className = "word";
+        if (word.index % 2 === 1) {
+          element.classList.add("alt");
+        }
         if (word.isActive) {
           element.classList.add("active");
           if (!word.isPlaced) {
@@ -2284,46 +1334,20 @@
         if (state.wordDrag && state.wordDrag.wordIndex === word.index) {
           element.classList.add("dragging");
         }
-        if (state.durationDrag && state.durationDrag.wordIndex === word.index) {
-          element.classList.add("dragging");
-        }
-        
         const leftPercent = timeToPercent(word.displayStart);
-        const rightPercent = timeToPercent(word.displayEnd);
-        const widthPercent = rightPercent - leftPercent;
-        
         element.style.left = `${leftPercent}%`;
-        element.style.width = `${Math.max(widthPercent, 0.5)}%`;
+        element.style.width = "max-content"; // Ensure button shrinks exactly to text
         
+        // Strip out invisible formatting characters that might bloat the width
         const cleanText = String(word.text || "").replace(/[\s\u200B-\u200D\uFEFF\u00A0]+/g, '');
-        element.innerHTML = `<span class="word-text">${cleanText}</span>`;
+        element.textContent = cleanText;
         element.dataset.wordId = word.id;
         element.dir = inferDirection(cleanText);
-        
         if (word.isPlaced) {
-          const leftHandle = document.createElement("div");
-          leftHandle.className = "resize-handle resize-handle-left";
-          element.appendChild(leftHandle);
-          
-          const rightHandle = document.createElement("div");
-          rightHandle.className = "resize-handle resize-handle-right";
-          element.appendChild(rightHandle);
-          
-          leftHandle.addEventListener("pointerdown", (event) => {
-            beginDurationDrag(event, word.index, "left");
-          });
-          
-          rightHandle.addEventListener("pointerdown", (event) => {
-            beginDurationDrag(event, word.index, "right");
-          });
-          
           element.addEventListener("pointerdown", (event) => {
-            if (event.target !== leftHandle && event.target !== rightHandle) {
-              beginWordDrag(event, word.index);
-            }
+            beginWordDrag(event, word.index);
           });
         }
-        
         element.addEventListener("click", (event) => {
           event.preventDefault();
           if (state._suppressClick) return;
@@ -2472,7 +1496,6 @@
       renderWordLayer();
       drawWaveform();
       renderButtons();
-      renderLyricsDrawer();
     }
 
     function queueRender() {
@@ -2547,7 +1570,6 @@
         wordIndex,
         anchorPercent: clamp(timeToPercent(displayStart), 0, 100),
         originalStarts: state.resolvedWords.map(w => w.start),
-        originalEnds: state.resolvedWords.map(w => w.end),
       };
       state.selectedWordIndex = wordIndex;
       state._suppressClick = true;
@@ -2584,182 +1606,6 @@
       renderAll();
       state.selectedWordIndex = draggedIndex;
       renderAll();
-    }
-
-    function beginDurationDrag(event, wordIndex, edge) {
-      if (!hasProject() || !isWordPlaced(wordIndex)) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      const draggedWord = state.resolvedWords[wordIndex];
-      if (!draggedWord || !Number.isFinite(draggedWord.end)) return;
-
-      const waveRect = ui.waveCanvas.getBoundingClientRect();
-      state.durationDrag = {
-        edge,
-        pointerId: event.pointerId,
-        width: Math.max(waveRect.width, 1),
-        originX: event.clientX,
-        originStart: draggedWord.start,
-        originEnd: draggedWord.end,
-        wordIndex,
-        originalStarts: state.resolvedWords.map(w => w.start),
-        originalEnds: state.resolvedWords.map(w => w.end),
-      };
-      state.selectedWordIndex = wordIndex;
-      state._suppressClick = true;
-      if (event.currentTarget && typeof event.currentTarget.setPointerCapture === "function") {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }
-      window.addEventListener("pointermove", onDurationDragMove);
-      window.addEventListener("pointerup", endDurationDrag);
-      window.addEventListener("pointercancel", endDurationDrag);
-      queueRender();
-    }
-
-    function onDurationDragMove(event) {
-      if (!state.durationDrag || event.pointerId !== state.durationDrag.pointerId) return;
-      const deltaX = event.clientX - state.durationDrag.originX;
-      const deltaSeconds = (deltaX / state.durationDrag.width) * state.zoomSeconds;
-      
-      if (state.durationDrag.edge === "right") {
-        setDraggedWordEnd(state.durationDrag.wordIndex, state.durationDrag.originEnd + deltaSeconds);
-      } else {
-        setDraggedWordStartOnly(state.durationDrag.wordIndex, state.durationDrag.originStart + deltaSeconds);
-      }
-      queueRender();
-    }
-
-    function endDurationDrag(event) {
-      if (!state.durationDrag || (event.pointerId !== undefined && event.pointerId !== state.durationDrag.pointerId)) return;
-      const draggedIndex = state.durationDrag.wordIndex;
-      state.durationDrag = null;
-      state._suppressClick = false;
-      window.removeEventListener("pointermove", onDurationDragMove);
-      window.removeEventListener("pointerup", endDurationDrag);
-      window.removeEventListener("pointercancel", endDurationDrag);
-      flushDataLayer();
-      renderAll();
-      state.selectedWordIndex = draggedIndex;
-      renderAll();
-    }
-
-    function setDraggedWordEnd(index, targetEnd) {
-      const committedCount = state.placedWordCount;
-      if (!committedCount || index < 0 || index >= committedCount || index >= state.resolvedWords.length) return false;
-
-      const duration = getAudioDuration();
-      const nextWords = state.resolvedWords.map((word) => ({ ...word }));
-      const starts = [...state.durationDrag.originalStarts];
-      const ends = [...state.durationDrag.originalEnds];
-
-      ends[index] = Math.max(targetEnd, starts[index] + 0.05);
-
-      for (let wordIndex = index + 1; wordIndex < committedCount; wordIndex += 1) {
-        if (starts[wordIndex] < ends[wordIndex - 1]) {
-           const shift = ends[wordIndex - 1] - starts[wordIndex];
-           starts[wordIndex] += shift;
-           ends[wordIndex] += shift;
-        }
-      }
-
-      for (let wordIndex = index + 1; wordIndex < committedCount; wordIndex += 1) {
-        const gap = starts[wordIndex] - ends[wordIndex - 1];
-        if (gap > 0) {
-           const originalGap = state.durationDrag.originalStarts[wordIndex] - state.durationDrag.originalEnds[wordIndex - 1];
-           if (originalGap <= 0.05) {
-              starts[wordIndex] = ends[wordIndex - 1];
-           } else {
-              break;
-           }
-        } else {
-           break;
-        }
-      }
-
-      if (Number.isFinite(duration) && duration > 0) {
-        const overflow = ends[committedCount - 1] - duration;
-        if (overflow > 0) {
-          for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
-            starts[wordIndex] -= overflow;
-            ends[wordIndex] -= overflow;
-          }
-          if (starts[0] < 0) {
-            const shiftRight = -starts[0];
-            for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
-              starts[wordIndex] += shiftRight;
-              ends[wordIndex] += shiftRight;
-            }
-          }
-        }
-      }
-
-      for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
-        nextWords[wordIndex].start = Number(starts[wordIndex].toFixed(3));
-        if (wordIndex === index || starts[wordIndex] !== state.durationDrag.originalStarts[wordIndex]) {
-           nextWords[wordIndex]._explicitEnd = Number(ends[wordIndex].toFixed(3));
-        } else {
-           nextWords[wordIndex]._explicitEnd = state.resolvedWords[wordIndex]._explicitEnd;
-        }
-      }
-
-      state.resolvedWords = nextWords;
-      commitVisualStateToData();
-      return true;
-    }
-
-    function setDraggedWordStartOnly(index, targetStart) {
-      const committedCount = state.placedWordCount;
-      if (!committedCount || index < 0 || index >= committedCount || index >= state.resolvedWords.length) return false;
-
-      const nextWords = state.resolvedWords.map((word) => ({ ...word }));
-      const starts = [...state.durationDrag.originalStarts];
-      const ends = [...state.durationDrag.originalEnds];
-
-      starts[index] = Math.min(Math.max(targetStart, 0), ends[index] - 0.05);
-
-      for (let wordIndex = index - 1; wordIndex >= 0; wordIndex -= 1) {
-        if (ends[wordIndex] > starts[wordIndex + 1]) {
-           const shift = ends[wordIndex] - starts[wordIndex + 1];
-           starts[wordIndex] -= shift;
-           ends[wordIndex] -= shift;
-        }
-      }
-
-      for (let wordIndex = index - 1; wordIndex >= 0; wordIndex -= 1) {
-        const gap = starts[wordIndex + 1] - ends[wordIndex];
-        if (gap > 0) {
-           const originalGap = state.durationDrag.originalStarts[wordIndex + 1] - state.durationDrag.originalEnds[wordIndex];
-           if (originalGap <= 0.05) {
-              ends[wordIndex] = starts[wordIndex + 1];
-           } else {
-              break;
-           }
-        } else {
-           break;
-        }
-      }
-
-      if (starts[0] < 0) {
-        const shiftRight = -starts[0];
-        for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
-          starts[wordIndex] += shiftRight;
-          ends[wordIndex] += shiftRight;
-        }
-      }
-
-      for (let wordIndex = 0; wordIndex < committedCount; wordIndex += 1) {
-        nextWords[wordIndex].start = Number(starts[wordIndex].toFixed(3));
-        if (wordIndex === index || ends[wordIndex] !== state.durationDrag.originalEnds[wordIndex]) {
-           nextWords[wordIndex]._explicitEnd = Number(ends[wordIndex].toFixed(3));
-        } else {
-           nextWords[wordIndex]._explicitEnd = state.resolvedWords[wordIndex]._explicitEnd;
-        }
-      }
-
-      state.resolvedWords = nextWords;
-      commitVisualStateToData();
-      return true;
     }
 
     async function fetchJson(url, options) {
@@ -3099,8 +1945,6 @@
           });
         }
         await loadProject({ bustCache: true });
-        state.lastSaveTimeMs = Date.now();
-        updateLastSavedMeta();
         updateStatusChip(
           ui.projectStatus,
           fallbackUsed
@@ -3384,8 +2228,11 @@
         return;
       }
       if (key === "l") {
+        if (!state.resolvedWords.length) {
+          return;
+        }
         event.preventDefault();
-        toggleDrawer();
+        jumpToLastPendingWord();
         return;
       }
       if (key === "0") {
@@ -3395,136 +2242,6 @@
         event.preventDefault();
         resetZoomLevel();
       }
-    }
-
-    function toggleDrawer() {
-      state.drawerOpen = !state.drawerOpen;
-      if (ui.rightDrawer) {
-        ui.rightDrawer.hidden = !state.drawerOpen;
-      }
-      if (ui.shortcutHint) {
-        ui.shortcutHint.hidden = state.drawerOpen;
-      }
-      if (state.drawerOpen) {
-        renderLyricsDrawer();
-      }
-      queueRender(); // Ensure layout reflows and waveform scales correctly
-    }
-
-    function commitLyricsEdits(lineIndex, newValue, action) {
-       const textLines = ui.lyricsText.value.split('\n');
-       
-       if (action === "insert_after") {
-           textLines.splice(lineIndex + 1, 0, "");
-       } else if (action === "delete") {
-           textLines.splice(lineIndex, 1);
-       } else if (action === "update") {
-           textLines[lineIndex] = newValue;
-       }
-       
-       const fullText = textLines.join("\n");
-       ui.lyricsText.value = fullText;
-       applyLyricsTextLocally(fullText);
-       
-       if (action === "insert_after") {
-           setTimeout(() => {
-               const newInputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-               if (newInputs[lineIndex + 1]) newInputs[lineIndex + 1].focus();
-           }, 50);
-       } else if (action === "delete") {
-           setTimeout(() => {
-               const newInputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-               const targetFocus = Math.max(0, lineIndex - 1);
-               if (newInputs[targetFocus]) newInputs[targetFocus].focus();
-           }, 50);
-       }
-    }
-
-    function renderLyricsDrawer() {
-      if (!state.drawerOpen || !ui.lyricsList) return;
-
-      const lines = getResolvedLines();
-      if (!lines.length) {
-        ui.lyricsList.innerHTML = `<div style="padding: 16px; text-align: center; color: var(--muted)">No lyrics found.</div>`;
-        return;
-      }
-
-      const { activeIndex } = findPreviewLines();
-
-      ui.lyricsList.innerHTML = "";
-      lines.forEach((line) => {
-        const lineEl = document.createElement("div");
-        lineEl.className = "lyrics-line";
-        if (line.index === activeIndex) {
-          lineEl.classList.add("active");
-        }
-        
-        const numEl = document.createElement("div");
-        numEl.className = "lyrics-line-number";
-        numEl.textContent = line.index + 1;
-        
-        const inputEl = document.createElement("input");
-        inputEl.type = "text";
-        inputEl.className = "lyrics-line-text";
-        inputEl.value = line.text;
-        
-        inputEl.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-             e.preventDefault();
-             commitLyricsEdits(line.index, inputEl.value, "insert_after");
-          } else if (e.key === "Backspace" && inputEl.value === "") {
-             e.preventDefault();
-             commitLyricsEdits(line.index, "", "delete");
-          }
-        });
-        
-        inputEl.addEventListener("blur", () => {
-           if (inputEl.value !== line.text) {
-               commitLyricsEdits(line.index, inputEl.value, "update");
-           }
-        });
-
-        lineEl.appendChild(numEl);
-        lineEl.appendChild(inputEl);
-        
-        inputEl.addEventListener("click", (e) => {
-          e.stopPropagation();
-        });
-
-        lineEl.addEventListener("click", () => {
-          if (line.words && line.words.length > 0 && Number.isFinite(line.words[0].start)) {
-            const safeStart = Math.max(0, line.words[0].start - 0.05);
-            setPlayheadTime(safeStart);
-            renderAll();
-          }
-        });
-
-        ui.lyricsList.appendChild(lineEl);
-        
-        if (line.index === activeIndex) {
-          const listRect = ui.lyricsList.getBoundingClientRect();
-          const lineRect = lineEl.getBoundingClientRect();
-          if (lineRect.top < listRect.top || lineRect.bottom > listRect.bottom) {
-             lineEl.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-        }
-      });
-      
-      updateLastSavedMeta();
-    }
-
-    function updateLastSavedMeta() {
-       if (!ui.saveLyricsMeta) return;
-       if (!state.lastSaveTimeMs) {
-          ui.saveLyricsMeta.innerHTML = `Not saved yet`;
-          return;
-       }
-       const mins = Math.floor((Date.now() - state.lastSaveTimeMs) / 60000);
-       let timeText = "just now";
-       if (mins > 0) {
-          timeText = `${mins} min ago`;
-       }
-       ui.saveLyricsMeta.innerHTML = `<span style="color: #4CAF50">✓</span> Last saved ${timeText}`;
     }
 
     function bindEvents() {
@@ -3606,12 +2323,6 @@
       ui.jumpWord.addEventListener("click", jumpToSelectedWord);
       ui.exportMp4.addEventListener("click", exportMp4);
       ui.saveProject.addEventListener("click", saveProject);
-      if (ui.saveLyrics) {
-        ui.saveLyrics.addEventListener("click", saveProject);
-      }
-      if (ui.closeDrawer) {
-        ui.closeDrawer.addEventListener("click", toggleDrawer);
-      }
       ui.deleteProject.addEventListener("click", deleteProject);
       ui.resetWord.addEventListener("click", resetSelectedSuffix);
       ui.resetAll.addEventListener("click", resetAllOverrides);
@@ -3652,6 +2363,4 @@
       updateStatusChip(ui.projectStatus, error.message, "warn");
       renderAll();
     });
-  </script>
-</body>
-</html>
+  
