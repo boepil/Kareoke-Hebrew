@@ -989,11 +989,8 @@
             <div class="drawer-header-title">LYRICS EDITOR ⓘ</div>
           </div>
           <div class="drawer-content" id="lyricsList"></div>
-          <div class="drawer-footer">
+            <div class="drawer-footer">
             <button id="saveLyrics">Save Lyrics</button>
-            <div class="drawer-footer-meta" id="saveLyricsMeta">
-              Not saved yet
-            </div>
           </div>
         </aside>
       </main>
@@ -1073,7 +1070,7 @@
       closeDrawer: $("closeDrawer"),
       lyricsList: $("lyricsList"),
       saveLyrics: $("saveLyrics"),
-      saveLyricsMeta: $("saveLyricsMeta"),
+
       shortcutHint: $("shortcutHint"),
     };
 
@@ -1106,6 +1103,7 @@
       stemMixAvailable: false,
       drawerOpen: false,
       lastSaveTimeMs: null,
+      hasUnsavedChanges: false,
     };
 
     function clamp(value, min, max) {
@@ -1472,6 +1470,7 @@
     }
 
     function applyLyricsTextLocally(rawLyricsText) {
+      markUnsaved();
       const nextManifest = buildManifestFromLyricsText(rawLyricsText, getAudioDuration());
       const previousPlaced = state.placedWordCount;
       const oldCommitted = state.baseWords.slice(0, previousPlaced);
@@ -2193,6 +2192,7 @@
     }
 
     function resetSelectedSuffix() {
+      markUnsaved();
       if (!state.baseWords.length) {
         return;
       }
@@ -2212,6 +2212,7 @@
     }
 
     function resetAllOverrides() {
+      markUnsaved();
       state.overrides.words = {};
       state.overrides.lines = {};
       state.placedWordCount = 0;
@@ -2318,45 +2319,6 @@
         });
       }
 
-      // Add ghost blocks for unplaced words in partially-placed sentences
-      if (Array.isArray(state.manifest.lines)) {
-        const placedByLine = {};
-        for (let index = 0; index < state.resolvedWords.length; index++) {
-          if (isWordPlaced(index)) {
-            const w = state.resolvedWords[index];
-            placedByLine[w.line_index] = (placedByLine[w.line_index] || 0) + 1;
-          }
-        }
-
-        const wordById = new Map(state.resolvedWords.map((w) => [w.id, w]));
-
-        state.manifest.lines.forEach((line) => {
-          const hasPlaced = (placedByLine[line.index] || 0) > 0;
-          if (!hasPlaced || !Array.isArray(line.word_ids)) return;
-
-          let cursor = null;
-          for (const wordId of line.word_ids) {
-            const resolvedWord = wordById.get(wordId);
-            if (!resolvedWord) continue;
-            if (isWordPlaced(resolvedWord.index)) {
-              cursor = resolvedWord.end;
-            } else if (resolvedWord.index !== state.selectedWordIndex) {
-              const ghostStart = cursor !== null ? cursor + 0.5 : 0;
-              const ghostEnd = ghostStart + 0.3;
-              visible.push({
-                ...resolvedWord,
-                displayStart: ghostStart,
-                displayEnd: ghostEnd,
-                isPlaced: false,
-                isActive: false,
-                isGhost: true,
-              });
-              cursor = ghostEnd;
-            }
-          }
-        });
-      }
-
       return visible.filter((word) => word.displayEnd >= state.displayWindow.start - 0.3 && word.displayStart <= state.displayWindow.end + 0.3);
     }
 
@@ -2367,44 +2329,76 @@
       const currentTime = ui.audio.currentTime || 0;
       const wordById = new Map(state.resolvedWords.map((w) => [w.id, w]));
 
-      const getLineTiming = (line) => {
-        if (!line.word_ids || !line.word_ids.length) return null;
+      const lineTimings = [];
+      const timingByLine = new Map();
+      for (const line of lines) {
+        if (!line.word_ids || !line.word_ids.length) { lineTimings.push(null); continue; }
         let firstPlaced = null;
         let lastPlaced = null;
+        let hasUnplaced = false;
         for (const wordId of line.word_ids) {
           const word = wordById.get(wordId);
           if (word && isWordPlaced(word.index) && Number.isFinite(word.start) && Number.isFinite(word.end)) {
             if (!firstPlaced || word.start < firstPlaced.start) firstPlaced = word;
             if (!lastPlaced || word.end > lastPlaced.end) lastPlaced = word;
+          } else if (word) {
+            hasUnplaced = true;
           }
         }
-        if (!firstPlaced || !lastPlaced) return null;
-        return { firstPlaced, lastPlaced };
-      };
+        if (!firstPlaced || !lastPlaced) { lineTimings.push(null); continue; }
+        const lt = { lineIndex: line.index, firstPlaced, lastPlaced, hasUnplaced };
+        lineTimings.push(lt);
+        timingByLine.set(line.index, lt);
+      }
 
       let activeIndex = -1;
       let upcomingIndex = -1;
 
-      for (const line of lines) {
-        const timing = getLineTiming(line);
-        if (!timing) continue;
-        if (currentTime >= timing.firstPlaced.start - 0.2 && currentTime <= timing.lastPlaced.end) {
-          activeIndex = line.index;
+      // Active within committed word range
+      for (const lt of lineTimings) {
+        if (!lt) continue;
+        if (currentTime >= lt.firstPlaced.start - 0.2 && currentTime <= lt.lastPlaced.end) {
+          activeIndex = lt.lineIndex;
           break;
         }
       }
 
+      // Sticky-active: if no line is currently active, keep a partially-committed
+      // line centered until all its words are placed (indefinite, no timeout)
       if (activeIndex === -1) {
-        for (const line of lines) {
-          const timing = getLineTiming(line);
-          if (!timing) continue;
-          if (currentTime < timing.firstPlaced.start - 0.2) {
-            upcomingIndex = line.index;
+        for (const lt of lineTimings) {
+          if (!lt || !lt.hasUnplaced || currentTime <= lt.lastPlaced.end) continue;
+          activeIndex = lt.lineIndex;
+          break;
+        }
+      }
+
+      // Upcoming: a line whose first placed word hasn't started yet
+      if (activeIndex === -1) {
+        for (const lt of lineTimings) {
+          if (!lt) continue;
+          if (currentTime < lt.firstPlaced.start - 0.2) {
+            upcomingIndex = lt.lineIndex;
             break;
           }
         }
       } else {
         upcomingIndex = activeIndex + 1;
+      }
+
+      // Fallback: after all committed lines have been passed,
+      // set upcoming to the next line after the last passed line
+      if (upcomingIndex === -1) {
+        let lastPassedIndex = -1;
+        for (const line of lines) {
+          const timing = timingByLine.get(line.index);
+          if (timing && currentTime > timing.lastPlaced.end) {
+            lastPassedIndex = line.index;
+          }
+        }
+        if (lastPassedIndex >= 0 && lastPassedIndex + 1 < lines.length) {
+          upcomingIndex = lastPassedIndex + 1;
+        }
       }
 
       return { activeIndex, upcomingIndex };
@@ -2503,11 +2497,14 @@
         }
         
         // Update words inside row
+        const isUpcoming = row.classList.contains("upcoming");
         Array.from(row.children).forEach((span) => {
           const wordId = span.dataset.wordId;
           const word = state.resolvedWords.find(w => w.id === wordId);
           if (!word) {
             span.className = "preview-word hidden";
+          } else if (isUpcoming) {
+            span.className = "preview-word";
           } else if (!isWordPlaced(word.index)) {
             if (linesWithPlaced.has(word.line_index)) {
               span.className = "preview-word ghost";
@@ -2757,6 +2754,31 @@
       }
     }
 
+    function renderSaveButtons() {
+      if (state.hasUnsavedChanges) {
+        [ui.saveProject, ui.saveLyrics].forEach((btn) => {
+          if (!btn) return;
+          btn.style.backgroundColor = "";
+          btn.style.color = "";
+          btn.style.border = "";
+        });
+      } else {
+        [ui.saveProject, ui.saveLyrics].forEach((btn) => {
+          if (!btn) return;
+          btn.style.backgroundColor = "rgba(76, 175, 80, 0.2)";
+          btn.style.color = "#4CAF50";
+          btn.style.border = "1px solid #4CAF50";
+        });
+      }
+    }
+
+    function markUnsaved() {
+      if (!state.hasUnsavedChanges) {
+        state.hasUnsavedChanges = true;
+        renderSaveButtons();
+      }
+    }
+
     function renderAll() {
       updateWindow();
       ui.playhead.style.left = "50%";
@@ -2764,6 +2786,7 @@
       renderWordLayer();
       drawWaveform();
       renderButtons();
+      renderSaveButtons();
       renderLyricsDrawer();
     }
 
@@ -3364,6 +3387,7 @@
     }
 
     async function flushDataLayer() {
+      markUnsaved();
       try {
         buildOverridesFromResolvedWords();
         const payload = {
@@ -3422,42 +3446,8 @@
           });
         }
         await loadProject({ bustCache: true, preserveState: true });
-        state.lastSaveTimeMs = Date.now();
-        updateLastSavedMeta();
-        
-        // Brief visual confirmation on buttons
-        const btnSaveProject = ui.saveProject;
-        const btnSaveLyrics = ui.saveLyrics;
-        const originalProjectText = btnSaveProject ? btnSaveProject.textContent : "";
-        const originalLyricsText = btnSaveLyrics ? btnSaveLyrics.textContent : "";
-
-        if (btnSaveProject) {
-          btnSaveProject.textContent = "Saved ✓";
-          btnSaveProject.style.backgroundColor = "rgba(76, 175, 80, 0.2)";
-          btnSaveProject.style.color = "#4CAF50";
-          btnSaveProject.style.border = "1px solid #4CAF50";
-        }
-        if (btnSaveLyrics) {
-          btnSaveLyrics.textContent = "Saved ✓";
-          btnSaveLyrics.style.backgroundColor = "rgba(76, 175, 80, 0.2)";
-          btnSaveLyrics.style.color = "#4CAF50";
-          btnSaveLyrics.style.border = "1px solid #4CAF50";
-        }
-
-        setTimeout(() => {
-          if (btnSaveProject) {
-            btnSaveProject.textContent = originalProjectText;
-            btnSaveProject.style.backgroundColor = "";
-            btnSaveProject.style.color = "";
-            btnSaveProject.style.border = "";
-          }
-          if (btnSaveLyrics) {
-            btnSaveLyrics.textContent = originalLyricsText;
-            btnSaveLyrics.style.backgroundColor = "";
-            btnSaveLyrics.style.color = "";
-            btnSaveLyrics.style.border = "";
-          }
-        }, 1500);
+        state.hasUnsavedChanges = false;
+        renderSaveButtons();
 
         updateStatusChip(
           ui.projectStatus,
@@ -3988,21 +3978,6 @@
         }
       }
       
-      updateLastSavedMeta();
-    }
-
-    function updateLastSavedMeta() {
-       if (!ui.saveLyricsMeta) return;
-       if (!state.lastSaveTimeMs) {
-          ui.saveLyricsMeta.innerHTML = `Not saved yet`;
-          return;
-       }
-       const mins = Math.floor((Date.now() - state.lastSaveTimeMs) / 60000);
-       let timeText = "just now";
-       if (mins > 0) {
-          timeText = `${mins} min ago`;
-       }
-       ui.saveLyricsMeta.innerHTML = `<span style="color: #4CAF50">✓</span> Last saved ${timeText}`;
     }
 
     function bindEvents() {
