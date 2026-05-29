@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import argparse
 import audioop
 import multiprocessing as mp
@@ -2554,6 +2555,189 @@ def _default_output_video_path(paths: EditorPaths) -> Path:
     return output_dir / output_name
 
 
+def _resolve_output_video_path(base_paths: EditorPaths, project_name: str = "") -> Path | None:
+    config = load_config(base_paths.config_path)
+    output_dir = _resolve_from_config(base_paths.config_path.parent, str(config["paths"]["output_dir"]))
+    if project_name:
+        return output_dir / f"{project_name} (Kareoke).mp4"
+    return None
+
+
+def _parse_codebase_dependency_graph(root_dir: Path) -> dict:
+    exclude_dirs = {'.git', '__pycache__', '.pytest_cache', 'venv', '.venv', 'data', 'temp', 'logs'}
+    
+    all_files = []
+    py_files = {}  # rel_path -> full Path
+    
+    for r, dirs, files in os.walk(root_dir):
+        # filter out excluded dirs in-place
+        dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        for f in files:
+            full_path = Path(r) / f
+            try:
+                rel_path = full_path.relative_to(root_dir).as_posix()
+            except ValueError:
+                continue
+                
+            parts = Path(rel_path).parts
+            group = parts[0] if len(parts) > 1 else "root"
+            
+            try:
+                size = full_path.stat().st_size
+            except Exception:
+                size = 0
+                
+            loc = 0
+            # Identify file type and record basic metrics
+            if f.endswith('.py'):
+                try:
+                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f_obj:
+                        loc = len(f_obj.readlines())
+                except Exception:
+                    pass
+                py_files[rel_path] = full_path
+                all_files.append((rel_path, 'python', loc, size, group))
+            elif f.endswith('.html'):
+                try:
+                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f_obj:
+                        loc = len(f_obj.readlines())
+                except Exception:
+                    pass
+                all_files.append((rel_path, 'html', loc, size, group))
+            elif f.endswith('.json'):
+                all_files.append((rel_path, 'json', 0, size, group))
+            elif f.endswith('.yaml') or f.endswith('.yml'):
+                all_files.append((rel_path, 'yaml', 0, size, group))
+            elif f.endswith('.css'):
+                try:
+                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f_obj:
+                        loc = len(f_obj.readlines())
+                except Exception:
+                    pass
+                all_files.append((rel_path, 'css', loc, size, group))
+
+    # Build module to relative path map
+    module_to_rel_path = {}
+    for rel_path in py_files:
+        mod_name = rel_path[:-3].replace('/', '.')
+        module_to_rel_path[mod_name] = rel_path
+        
+    global_defs = {}
+    ast_data = {}
+    
+    for rel_path, full_path in py_files.items():
+        try:
+            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            tree = ast.parse(content, filename=str(full_path))
+            ast_data[rel_path] = tree
+        except Exception:
+            ast_data[rel_path] = None
+            
+    # First pass: find global definitions (classes, functions)
+    for rel_path, tree in ast_data.items():
+        if not tree:
+            continue
+        for body_item in tree.body:
+            if isinstance(body_item, ast.ClassDef):
+                global_defs[body_item.name] = (rel_path, 'class')
+            elif isinstance(body_item, ast.FunctionDef):
+                global_defs[body_item.name] = (rel_path, 'function')
+                
+    nodes = []
+    links = []
+    
+    for rel_path, file_type, loc, size, group in all_files:
+        node_info = {
+            "id": rel_path,
+            "name": Path(rel_path).name,
+            "type": file_type,
+            "path": rel_path,
+            "loc": loc,
+            "size": size,
+            "group": group,
+            "classes": [],
+            "functions": []
+        }
+        
+        if file_type == 'python' and ast_data.get(rel_path):
+            tree = ast_data[rel_path]
+            # Second pass: extract classes and methods, top-level functions, imports, calls
+            for body_item in tree.body:
+                if isinstance(body_item, ast.ClassDef):
+                    methods = [
+                        m.name for m in body_item.body
+                        if isinstance(m, ast.FunctionDef)
+                    ]
+                    node_info["classes"].append({
+                        "name": body_item.name,
+                        "methods": methods
+                    })
+                elif isinstance(body_item, ast.FunctionDef):
+                    node_info["functions"].append(body_item.name)
+                    
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        target_mod = alias.name
+                        if target_mod in module_to_rel_path:
+                            links.append({
+                                "source": rel_path,
+                                "target": module_to_rel_path[target_mod],
+                                "type": "import"
+                            })
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        target_mod = node.module
+                        if target_mod in module_to_rel_path:
+                            links.append({
+                                "source": rel_path,
+                                "target": module_to_rel_path[target_mod],
+                                "type": "import"
+                            })
+                        # Check also if target_mod is a parent package and we import specific module from it
+                        for alias in node.names:
+                            possible_mod = f"{target_mod}.{alias.name}"
+                            if possible_mod in module_to_rel_path:
+                                links.append({
+                                    "source": rel_path,
+                                    "target": module_to_rel_path[possible_mod],
+                                    "type": "import"
+                                })
+                elif isinstance(node, ast.Call):
+                    func_name = None
+                    if isinstance(node.func, ast.Name):
+                        func_name = node.func.id
+                    elif isinstance(node.func, ast.Attribute):
+                        func_name = node.func.attr
+                        
+                    if func_name and func_name in global_defs:
+                        target_file, def_type = global_defs[func_name]
+                        if target_file != rel_path:
+                            links.append({
+                                "source": rel_path,
+                                "target": target_file,
+                                "type": "call",
+                                "detail": f"calls {func_name} ({def_type})"
+                            })
+                            
+        nodes.append(node_info)
+        
+    # Deduplicate links
+    seen_links = set()
+    dedup_links = []
+    for link in links:
+        key = (link["source"], link["target"], link["type"])
+        if key not in seen_links:
+            seen_links.add(key)
+            dedup_links.append(link)
+            
+    return {
+        "nodes": nodes,
+        "links": dedup_links
+    }
+
+
 def create_app(config_path: str | Path = "config.yaml") -> Flask:
     base_paths = _editor_paths(config_path)
     app = Flask(__name__)
@@ -3661,6 +3845,40 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             return _json_response({"error": f"Could not open output video: {exc}"}, status=500)
 
         return _json_response({"ok": True, "output_video": str(output_path)})
+
+    @app.get("/api/export/video")
+    def api_export_video() -> Response:
+        project_name = request.args.get("project_name", "").strip()
+        output_path = _resolve_output_video_path(base_paths, project_name)
+        if not output_path:
+            output_path = _default_output_video_path(current_paths())
+        if not output_path.exists():
+            return _json_response({"error": "Output video not found"}, status=404)
+        return send_file(str(output_path), mimetype="video/mp4")
+
+    @app.get("/api/export/video/status")
+    def api_export_video_status() -> Response:
+        project_name = request.args.get("project_name", "").strip()
+        output_path = _resolve_output_video_path(base_paths, project_name)
+        if not output_path:
+            output_path = _default_output_video_path(current_paths())
+        return _json_response({"available": output_path.exists()})
+
+    @app.get("/graph")
+    @app.get("/ui/graph_viewer.html")
+    def graph_index() -> Response:
+        graph_ui_path = base_paths.ui_path.parent / "graph_viewer.html"
+        if not graph_ui_path.exists():
+            return _json_response({"error": f"Graph UI file not found: {graph_ui_path}"}, status=404)
+        return send_file(graph_ui_path)
+
+    @app.get("/api/graph/data")
+    def api_graph_data() -> Response:
+        try:
+            graph_data = _parse_codebase_dependency_graph(base_paths.root_dir)
+            return _json_response(graph_data)
+        except Exception as exc:
+            return _json_response({"error": str(exc)}, status=500)
 
     return app
 

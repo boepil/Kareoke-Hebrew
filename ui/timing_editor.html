@@ -890,6 +890,7 @@
             <button id="saveProject">Save Project</button>
             <button class="warn" id="deleteProject">Delete Project</button>
             <button id="exportMp4">Export MP4</button>
+            <button class="ghost" id="showVideo" disabled>Show Movie</button>
             <button class="ghost" id="resetAll">Reset All</button>
           </div>
           <div class="export-status" id="exportStatus" hidden>
@@ -1058,6 +1059,7 @@
       back2: $("back2"),
       jumpWord: $("jumpWord"),
       exportMp4: $("exportMp4"),
+      showVideo: $("showVideo"),
       exportStatus: $("exportStatus"),
       exportStage: $("exportStage"),
       exportPercent: $("exportPercent"),
@@ -1098,6 +1100,7 @@
       pipelineLoadingProject: false,
       exportLocalStartMs: null,
       outputVideoPath: null,
+      outputVideoAvailable: false,
       lyricsTextDebounce: null,
       stemMixValue: 0,
       stemMixAvailable: false,
@@ -1588,15 +1591,45 @@
         ui.exportDetail.textContent = "No export running.";
         state.outputVideoPath = null;
         state.exportLocalStartMs = null;
+        renderShowVideoButton();
         return;
       }
 
       state.outputVideoPath = payload?.output_video || null;
+      if (state.outputVideoPath) {
+        state.outputVideoAvailable = true;
+      }
       ui.exportStatus.hidden = false;
       ui.exportStage.textContent = detail;
       ui.exportPercent.textContent = `${progress}%`;
       ui.exportProgressFill.style.width = `${progress}%`;
       ui.exportDetail.textContent = payload?.error || payload?.output_video || `Status: ${status}`;
+      renderShowVideoButton();
+    }
+
+    async function checkOutputVideoStatus() {
+      const projectName = state.session?.project_name || "";
+      try {
+        const payload = await fetchJson(`/api/export/video/status?project_name=${encodeURIComponent(projectName)}`);
+        state.outputVideoAvailable = !!payload?.available;
+      } catch (_) {
+        state.outputVideoAvailable = false;
+      }
+      renderShowVideoButton();
+    }
+
+    function renderShowVideoButton() {
+      const enabled = state.outputVideoAvailable;
+      ui.showVideo.disabled = !enabled;
+      if (enabled) {
+        ui.showVideo.style.backgroundColor = "rgba(76, 175, 80, 0.2)";
+        ui.showVideo.style.color = "#4CAF50";
+        ui.showVideo.style.border = "1px solid #4CAF50";
+      } else {
+        ui.showVideo.style.backgroundColor = "";
+        ui.showVideo.style.color = "";
+        ui.showVideo.style.border = "";
+      }
     }
 
     async function syncExportStatus() {
@@ -1626,10 +1659,12 @@
           if (!["queued", "building_subtitles", "rendering"].includes(payload.status)) {
             stopExportPolling();
             ui.exportMp4.disabled = false;
+            checkOutputVideoStatus();
           }
         } catch (_) {
           stopExportPolling();
           ui.exportMp4.disabled = false;
+          checkOutputVideoStatus();
         }
       }, 2000);
     }
@@ -2788,6 +2823,7 @@
       renderButtons();
       renderSaveButtons();
       renderLyricsDrawer();
+      renderShowVideoButton();
     }
 
     function queueRender() {
@@ -3221,6 +3257,7 @@
         renderPipelineStatus({ status: "idle", stages: [] });
       }
       renderAll();
+      checkOutputVideoStatus();
     }
 
     async function importProject() {
@@ -4058,6 +4095,10 @@
       ui.back2.addEventListener("click", () => seekRelative(-2));
       ui.jumpWord.addEventListener("click", jumpToSelectedWord);
       ui.exportMp4.addEventListener("click", exportMp4);
+      ui.showVideo.addEventListener("click", () => {
+  const projectName = encodeURIComponent(state.session?.project_name || "");
+  window.open(`/api/export/video?project_name=${projectName}`, "_blank");
+});
       ui.saveProject.addEventListener("click", saveProject);
       if (ui.saveLyrics) {
         ui.saveLyrics.addEventListener("click", saveProject);
