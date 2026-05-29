@@ -1983,7 +1983,7 @@
       const minWidth = Math.max(0.1, 20 * state.zoomSeconds / layerWidthPx);
       const songDuration = getAudioDuration() || 9999;
 
-      // Group words resolution
+      // Group words resolution (with current positions for instant contact detection)
       const placedWords = nextWords.filter((w, i) => isWordPlaced(i));
       const sentenceGroups = state.manifest.lines.map((line) => {
         const wordsInGroup = placedWords.filter((w) => w.line_index === line.index);
@@ -2000,6 +2000,9 @@
           words: wordsInGroup,
           originalStart: originalGroupStart,
           originalEnd: originalGroupEnd,
+          // Current positions from resolvedWords (pre-drag state for THIS frame)
+          currentStart: nextWords[firstWord.index]?.start ?? originalGroupStart,
+          currentEnd: nextWords[lastWord.index]?.end ?? originalGroupEnd,
           width: originalGroupEnd - originalGroupStart,
         };
       }).filter(Boolean);
@@ -2011,10 +2014,10 @@
       const k = groupWords.findIndex((w) => w.id === word.id);
       const N = groupWords.length;
 
-      // Compute barriers (L_0 and U_N_1) with 0.05s contact threshold
+      // Compute barriers using CURRENT positions — re-evaluated every frame for instant contact
       let p = -1;
       for (let i = gIndex - 1; i >= 0; i--) {
-        const gap = sentenceGroups[i + 1].originalStart - sentenceGroups[i].originalEnd;
+        const gap = sentenceGroups[i + 1].currentStart - sentenceGroups[i].currentEnd;
         if (gap > 0.05) {
           p = i;
           break;
@@ -2023,7 +2026,7 @@
       let barrierLeft = 0;
       let L_0 = 0;
       if (p >= 0) {
-        barrierLeft = sentenceGroups[p].originalEnd;
+        barrierLeft = sentenceGroups[p].currentEnd;
         L_0 = barrierLeft + 0.05;
       } else {
         barrierLeft = 0;
@@ -2035,7 +2038,7 @@
 
       let q = sentenceGroups.length;
       for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
-        const gap = sentenceGroups[i].originalStart - sentenceGroups[i - 1].originalEnd;
+        const gap = sentenceGroups[i].currentStart - sentenceGroups[i - 1].currentEnd;
         if (gap > 0.05) {
           q = i;
           break;
@@ -2044,7 +2047,7 @@
       let barrierRight = songDuration;
       let U_N_1 = songDuration;
       if (q < sentenceGroups.length) {
-        barrierRight = sentenceGroups[q].originalStart;
+        barrierRight = sentenceGroups[q].currentStart;
         U_N_1 = barrierRight - 0.05;
       } else {
         barrierRight = songDuration;
@@ -2117,7 +2120,7 @@
         shift_g_end = finalGroupEnd - G_g.originalEnd;
       }
 
-      // Propagate pushing to other sentence groups
+      // Propagate pushing to other sentence groups (using current positions)
       const groupShifts = new Array(sentenceGroups.length).fill(0);
       groupShifts[gIndex] = shift_g;
       
@@ -2125,13 +2128,17 @@
       groupShiftsEnd[gIndex] = shift_g_end;
 
       for (let i = gIndex - 1; i >= 0; i--) {
-        const shift_i = Math.min(0, (sentenceGroups[i + 1].originalStart + groupShifts[i + 1]) - sentenceGroups[i].originalEnd - 0.05);
+        const end_i = nextWords[sentenceGroups[i].words[sentenceGroups[i].words.length - 1].index]?.end ?? sentenceGroups[i].currentEnd;
+        const start_i1 = nextWords[sentenceGroups[i + 1].words[0].index]?.start ?? sentenceGroups[i + 1].currentStart;
+        const shift_i = Math.min(0, (start_i1 + groupShifts[i + 1]) - end_i - 0.05);
         groupShifts[i] = shift_i;
         groupShiftsEnd[i] = shift_i;
       }
 
       for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
-        const shift_i = Math.max(0, (sentenceGroups[i - 1].originalEnd + groupShiftsEnd[i - 1]) - sentenceGroups[i].originalStart + 0.05);
+        const end_i1 = nextWords[sentenceGroups[i - 1].words[sentenceGroups[i - 1].words.length - 1].index]?.end ?? sentenceGroups[i - 1].currentEnd;
+        const start_i = nextWords[sentenceGroups[i].words[0].index]?.start ?? sentenceGroups[i].currentStart;
+        const shift_i = Math.max(0, (end_i1 + groupShiftsEnd[i - 1]) - start_i + 0.05);
         groupShifts[i] = shift_i;
         groupShiftsEnd[i] = shift_i;
       }
