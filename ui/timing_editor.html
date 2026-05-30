@@ -292,9 +292,11 @@
       color: var(--accent);
       transform: scale(1.15);
     }
-    .lyrics-line-text {
+    .lyrics-line.active .lyrics-words {
+      border-color: transparent;
+    }
+    .lyrics-words {
       flex: 1;
-      color: var(--text);
       font: 700 16px/1.4 var(--display);
       text-align: right;
       direction: rtl;
@@ -303,16 +305,18 @@
       outline: none;
       padding: 0 4px;
       border-radius: 4px;
-      width: 100%;
       min-width: 0;
+      word-break: break-word;
     }
-    .lyrics-line-text:focus {
+    .lyrics-words:focus {
       border-color: rgba(255,255,255,0.2);
       background: rgba(0,0,0,0.2);
     }
-    .lyrics-line.active .lyrics-line-text {
-      color: var(--accent);
-    }
+    .lyrics-word { display: inline; white-space: pre-wrap; }
+    .lyrics-word.committed { color: var(--text); }
+    .lyrics-word.uncommitted { color: var(--muted); }
+    .lyrics-line.active .lyrics-word.committed { color: var(--accent); }
+    .lyrics-line.active .lyrics-word.uncommitted { color: var(--muted); opacity: 0.6; }
     .drawer-footer {
       padding: 16px;
       border-top: 1px solid var(--line);
@@ -1527,6 +1531,7 @@
       drawerOpen: false,
       lastSaveTimeMs: null,
       hasUnsavedChanges: false,
+      clickedLineIndex: -1,
     };
 
     function clamp(value, min, max) {
@@ -1831,6 +1836,42 @@
         .split(/\r?\n/)
         .map((line) => line.replace(/\s+/g, " ").trim())
         .filter(Boolean);
+    }
+
+    function getContentEditableCursorOffset(element) {
+      const sel = window.getSelection();
+      if (!sel.rangeCount || !element.contains(sel.anchorNode)) return null;
+      const range = sel.getRangeAt(0);
+      const pre = document.createRange();
+      pre.selectNodeContents(element);
+      pre.setEnd(range.startContainer, range.startOffset);
+      return pre.toString().length;
+    }
+
+    function setContentEditableCursorOffset(element, offset) {
+      if (offset == null) return;
+      element.focus();
+      const sel = window.getSelection();
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+      let current = 0;
+      let node;
+      while (node = walker.nextNode()) {
+        const len = node.textContent.length;
+        if (current + len >= offset) {
+          const r = document.createRange();
+          r.setStart(node, offset - current);
+          r.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(r);
+          return;
+        }
+        current += len;
+      }
+      const r = document.createRange();
+      r.selectNodeContents(element);
+      r.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(r);
     }
 
     function buildManifestFromLyricsText(lyricsText, durationSeconds) {
@@ -4232,14 +4273,13 @@
            applyLyricsTextLocally(fullText);
            state.ignoreFocusRestoration = false;
            
-           setTimeout(() => {
-               const newInputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-               if (newInputs[lineIndex + 1]) {
-                   newInputs[lineIndex + 1].focus();
-                   newInputs[lineIndex + 1].setSelectionRange(0, 0);
-               }
-           }, 10);
-       } else if (action === "merge_up") {
+            setTimeout(() => {
+                const newDivs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-words"));
+                if (newDivs[lineIndex + 1]) {
+                    setContentEditableCursorOffset(newDivs[lineIndex + 1], 0);
+                }
+            }, 10);
+        } else if (action === "merge_up") {
            if (lineIndex <= 0) return;
            state.ignoreFocusRestoration = true;
            const prevText = textLines[lineIndex - 1] || "";
@@ -4253,13 +4293,12 @@
            state.ignoreFocusRestoration = false;
            
            setTimeout(() => {
-               const newInputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-               if (newInputs[lineIndex - 1]) {
-                   newInputs[lineIndex - 1].focus();
-                   newInputs[lineIndex - 1].setSelectionRange(targetCursor, targetCursor);
-               }
-           }, 10);
-       } else if (action === "merge_down") {
+                const newDivs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-words"));
+                if (newDivs[lineIndex - 1]) {
+                    setContentEditableCursorOffset(newDivs[lineIndex - 1], targetCursor);
+                }
+            }, 10);
+        } else if (action === "merge_down") {
            if (lineIndex >= textLines.length - 1) return;
            state.ignoreFocusRestoration = true;
            const currentText = textLines[lineIndex] || "";
@@ -4274,11 +4313,10 @@
            state.ignoreFocusRestoration = false;
            
            setTimeout(() => {
-               const newInputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-               if (newInputs[lineIndex]) {
-                   newInputs[lineIndex].focus();
-                   newInputs[lineIndex].setSelectionRange(targetCursor, targetCursor);
-               }
+                const newDivs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-words"));
+                if (newDivs[lineIndex]) {
+                    setContentEditableCursorOffset(newDivs[lineIndex], targetCursor);
+                }
            }, 10);
        }
     }
@@ -4292,18 +4330,31 @@
         return;
       }
 
-      // Record focus and cursor position to allow real-time typing updates
+      // Record focus and cursor position for contenteditable divs
       let activeLineIndex = null;
-      let activeSelectionStart = null;
-      let activeSelectionEnd = null;
-      if (!state.ignoreFocusRestoration && document.activeElement && document.activeElement.classList.contains("lyrics-line-text")) {
-        const inputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-        activeLineIndex = inputs.indexOf(document.activeElement);
-        activeSelectionStart = document.activeElement.selectionStart;
-        activeSelectionEnd = document.activeElement.selectionEnd;
+      let activeCursorOffset = null;
+      if (!state.ignoreFocusRestoration && document.activeElement && document.activeElement.classList.contains("lyrics-words")) {
+        const wordsDivs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-words"));
+        activeLineIndex = wordsDivs.indexOf(document.activeElement);
+        if (activeLineIndex !== -1) {
+          activeCursorOffset = getContentEditableCursorOffset(document.activeElement);
+        }
       }
 
-      const { activeIndex } = findPreviewLines();
+      const { activeIndex: audioActiveIndex } = findPreviewLines();
+
+      if (state.clickedLineIndex >= 0) {
+        const clickedLine = lines.find(l => l.index === state.clickedLineIndex);
+        if (clickedLine && clickedLine.words.length > 0) {
+          const lineEnd = clickedLine.words[clickedLine.words.length - 1].end;
+          if ((ui.audio.currentTime || 0) > lineEnd + 1.5) {
+            state.clickedLineIndex = -1;
+          }
+        } else {
+          state.clickedLineIndex = -1;
+        }
+      }
+      const activeIndex = state.clickedLineIndex >= 0 ? state.clickedLineIndex : audioActiveIndex;
 
       ui.lyricsList.innerHTML = "";
       lines.forEach((line) => {
@@ -4312,76 +4363,93 @@
         if (line.index === activeIndex) {
           lineEl.classList.add("active");
         }
-        
+
         const numEl = document.createElement("div");
         numEl.className = "lyrics-line-number";
         numEl.textContent = line.index + 1;
-        
-        const inputEl = document.createElement("input");
-        inputEl.type = "text";
-        inputEl.className = "lyrics-line-text";
-        inputEl.value = line.text;
-        
-        // Multi-line cursor and split/merge keyboard interactions
-        inputEl.addEventListener("keydown", (e) => {
-          const val = inputEl.value;
-          const selStart = inputEl.selectionStart;
-          const selEnd = inputEl.selectionEnd;
-          
+
+        // Contenteditable div with per-word spans
+        const wordsDiv = document.createElement("div");
+        wordsDiv.className = "lyrics-words";
+        wordsDiv.contentEditable = "true";
+        wordsDiv.dir = "rtl";
+
+        const baseWords = line.allWords || [];
+        if (baseWords.length > 0) {
+          baseWords.forEach((baseWord, wi) => {
+            const resolvedWord = state.resolvedWords.find(w => w.id === baseWord.id);
+            const isCommitted = resolvedWord && Number.isFinite(resolvedWord.start);
+            const wordSpan = document.createElement("span");
+            wordSpan.className = `lyrics-word ${isCommitted ? "committed" : "uncommitted"}`;
+            wordSpan.textContent = baseWord.text;
+            wordsDiv.appendChild(wordSpan);
+            if (wi < baseWords.length - 1) {
+              wordsDiv.append(" ");
+            }
+          });
+        } else {
+          wordsDiv.textContent = line.text || "";
+          wordsDiv.style.color = "var(--muted)";
+        }
+
+        // Keyboard navigation and editing
+        wordsDiv.addEventListener("keydown", (e) => {
+          const val = wordsDiv.textContent || "";
+          const selStart = getContentEditableCursorOffset(wordsDiv) || 0;
+
           if (e.key === "Enter") {
              e.preventDefault();
              const leftText = val.substring(0, selStart);
              const rightText = val.substring(selStart);
              commitLyricsEdits(line.index, null, "split", { leftText, rightText });
-          } else if (e.key === "Backspace" && selStart === 0 && selEnd === 0) {
+          } else if (e.key === "Backspace" && selStart === 0) {
              e.preventDefault();
              commitLyricsEdits(line.index, val, "merge_up");
-          } else if (e.key === "Delete" && selStart === val.length && selEnd === val.length) {
+          } else if (e.key === "Delete" && selStart >= val.length) {
              e.preventDefault();
              commitLyricsEdits(line.index, null, "merge_down");
           } else if (e.key === "ArrowUp") {
-             const newInputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-             const targetInput = newInputs[line.index - 1];
-             if (targetInput) {
+             const allDivs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-words"));
+             const targetDiv = allDivs[line.index - 1];
+             if (targetDiv) {
                e.preventDefault();
-               const pos = Math.min(selStart, targetInput.value.length);
-               targetInput.focus();
-               targetInput.setSelectionRange(pos, pos);
+               const pos = Math.min(selStart, (targetDiv.textContent || "").length);
+               setContentEditableCursorOffset(targetDiv, pos);
              }
           } else if (e.key === "ArrowDown") {
-             const newInputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-             const targetInput = newInputs[line.index + 1];
-             if (targetInput) {
+             const allDivs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-words"));
+             const targetDiv = allDivs[line.index + 1];
+             if (targetDiv) {
                e.preventDefault();
-               const pos = Math.min(selStart, targetInput.value.length);
-               targetInput.focus();
-               targetInput.setSelectionRange(pos, pos);
+               const pos = Math.min(selStart, (targetDiv.textContent || "").length);
+               setContentEditableCursorOffset(targetDiv, pos);
              }
           }
         });
-        
-        // Real-time update as they type
-        inputEl.addEventListener("input", () => {
-           commitLyricsEdits(line.index, inputEl.value, "update");
+
+        // Real-time update on input
+        wordsDiv.addEventListener("input", () => {
+          commitLyricsEdits(line.index, wordsDiv.textContent || "", "update");
         });
-        
-        inputEl.addEventListener("blur", () => {
-           if (inputEl.value !== line.text) {
-               commitLyricsEdits(line.index, inputEl.value, "update");
-           }
+
+        wordsDiv.addEventListener("blur", () => {
+          const newText = wordsDiv.textContent || "";
+          if (newText !== line.text) {
+            commitLyricsEdits(line.index, newText, "update");
+          }
+        });
+
+        wordsDiv.addEventListener("click", (e) => {
+          e.stopPropagation();
         });
 
         lineEl.appendChild(numEl);
-        lineEl.appendChild(inputEl);
-        
-        // Prevent typing inputs from triggering playhead jumps
-        inputEl.addEventListener("click", (e) => {
-          e.stopPropagation();
-        });
+        lineEl.appendChild(wordsDiv);
 
-        // Clicking the line number jumps playhead and centers waveform display
+        // Line number click — seek + scroll to line
         numEl.addEventListener("click", (e) => {
           e.stopPropagation();
+          state.clickedLineIndex = line.index;
           const firstPlacedWord = line.words && line.words[0];
           if (firstPlacedWord && Number.isFinite(firstPlacedWord.start)) {
              const targetIndex = state.resolvedWords.findIndex(w => w.id === firstPlacedWord.id);
@@ -4393,32 +4461,24 @@
                 setWindowAround(safeStart);
                 renderAll();
              }
+             lineEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          } else {
+             updateStatusChip(ui.projectStatus, "Line has no committed words — place words first.", "warn");
           }
         });
 
         ui.lyricsList.appendChild(lineEl);
-        
-        if (line.index === activeIndex) {
-          const listRect = ui.lyricsList.getBoundingClientRect();
-          const lineRect = lineEl.getBoundingClientRect();
-          if (lineRect.top < listRect.top || lineRect.bottom > listRect.bottom) {
-             lineEl.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-        }
       });
 
-      // Restore active focus and caret position if we were typing
+      // Restore cursor position after re-render
       if (activeLineIndex !== null) {
-        const inputs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-line-text"));
-        const targetInput = inputs[activeLineIndex];
-        if (targetInput) {
-          targetInput.focus();
-          if (activeSelectionStart !== null && activeSelectionEnd !== null) {
-            targetInput.setSelectionRange(activeSelectionStart, activeSelectionEnd);
-          }
+        const wordsDivs = Array.from(ui.lyricsList.querySelectorAll(".lyrics-words"));
+        const targetDiv = wordsDivs[activeLineIndex];
+        if (targetDiv) {
+          setContentEditableCursorOffset(targetDiv, activeCursorOffset);
         }
       }
-      
+
     }
 
     function bindEvents() {
