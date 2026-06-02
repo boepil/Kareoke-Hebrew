@@ -4100,25 +4100,6 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         set_pipeline_job(**_default_pipeline_job())
         return _json_response({"ok": True, "status": "idle", "stopped": stopped, "pid": pid})
 
-    @app.post("/api/lyrics/import")
-    def api_import_lyrics() -> Response:
-        raw_payload = request.get_json(silent=True) or {}
-        if not isinstance(raw_payload, Mapping):
-            return _json_response({"error": "Invalid JSON payload"}, status=400)
-
-        lyrics_url = str(raw_payload.get("lyrics_url", "")).strip()
-        if not lyrics_url:
-            return _json_response({"error": "lyrics_url is required"}, status=400)
-
-        try:
-            payload = _fetch_shirrim_lyrics(lyrics_url)
-        except ValueError as exc:
-            return _json_response({"error": str(exc)}, status=400)
-        except Exception as exc:
-            return _json_response({"error": str(exc)}, status=502)
-
-        return _json_response({"ok": True, **payload})
-
     @app.post("/api/fetch_lyrics")
     def api_fetch_lyrics() -> Response:
         raw_payload = request.get_json(silent=True) or {}

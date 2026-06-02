@@ -1358,65 +1358,6 @@
             </button>
           </div>
 
-          <!-- Lyrics Search -->
-          <div class="sidebar-section">
-            <div class="sidebar-label">LYRICS SEARCH</div>
-            <button class="btn-primary" id="searchLyrics" disabled
-                    style="display:flex;align-items:center;justify-content:center;gap:8px;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="11" cy="11" r="8"/>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              Search Lyrics
-            </button>
-            <div id="lyricsPreview" hidden>
-              <div style="display:flex;align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap;">
-                <a id="lyricsSourceLink" target="_blank" class="field-link"
-                   style="display:none;font-size:12px;"></a>
-                <span class="lyrics-badge" id="lyricsDiscoveryBadge" style="display:none;font-size:10px;"></span>
-                <span class="lyrics-badge" id="lyricsExtractionBadge" style="display:none;font-size:10px;"></span>
-                <span class="chip" id="lyricsSourceStatus" style="font-size:11px;"></span>
-              </div>
-              <div class="lyrics-preview-scroll" id="lyricsPreviewText"></div>
-              <div class="btn-row" id="lyricsPreviewActions" style="gap:6px;">
-                <button class="btn-primary" id="useLyricsBtn" style="flex:1;">Use These Lyrics</button>
-                <button class="btn-outline" id="tryNextSourceBtn" style="flex:1;">Try next source →</button>
-              </div>
-              <div id="lyricsFallback">
-                <a id="fallbackLink" target="_blank" class="field-link"
-                   style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                    <polyline points="15 3 21 3 21 9"/>
-                    <line x1="10" y1="14" x2="21" y2="3"/>
-                  </svg>
-                  Open search in browser
-                </a>
-                <button id="toggleManualSearch" class="btn-outline"
-                        style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:6px 10px;width:auto;">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="8"/>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                  </svg>
-                  Manual Search
-                </button>
-              </div>
-              <div id="manualSearchPanel" hidden style="margin-top:8px;border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,0.02);">
-                <div style="display:flex;gap:6px;margin-bottom:6px;">
-                  <input id="manualSearchQuery" type="text" dir="auto" placeholder='"{song}" "{artist}" מילים לשיר'
-                         style="flex:1;padding:8px 10px;font-size:13px;border-radius:8px;">
-                  <button id="manualDdgBtn" class="secondary" style="white-space:nowrap;padding:6px 12px;font-size:12px;">Search DDG</button>
-                </div>
-                <div id="manualSearchResults" style="display:none;max-height:200px;overflow-y:auto;font-size:12px;">
-                </div>
-                <div style="display:flex;gap:6px;margin-top:6px;">
-                  <button id="manualFetchUrlBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">Fetch from URL</button>
-                  <button id="manualLlmBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">LLM Extract</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
           <!-- Pipeline -->
           <div class="sidebar-section">
             <div class="sidebar-label">
@@ -1542,9 +1483,61 @@
                 <button id="processLyrics" disabled>Process</button>
               </div>
               <div class="drawer-section">
-                <div class="drawer-section-title">Import from URL</div>
-                <input id="lyricsUrl" type="url" dir="ltr" placeholder="https://shironet.mako.co.il/...">
-                <button id="fetchLyrics" disabled>Fetch</button>
+                <div class="drawer-section-title">Search Lyrics</div>
+                <button class="btn-primary" id="searchLyrics" disabled
+                        style="display:flex;align-items:center;justify-content:center;gap:8px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  Search Lyrics
+                </button>
+                <div id="lyricsPreview" hidden>
+                  <div style="display:flex;align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap;">
+                    <a id="lyricsSourceLink" target="_blank" class="field-link"
+                       style="display:none;font-size:12px;"></a>
+                    <span class="lyrics-badge" id="lyricsDiscoveryBadge" style="display:none;font-size:10px;"></span>
+                    <span class="lyrics-badge" id="lyricsExtractionBadge" style="display:none;font-size:10px;"></span>
+                    <span class="chip" id="lyricsSourceStatus" style="font-size:11px;"></span>
+                  </div>
+                  <div class="lyrics-preview-scroll" id="lyricsPreviewText"></div>
+                  <div class="btn-row" id="lyricsPreviewActions" style="gap:6px;">
+                    <button class="btn-primary" id="useLyricsBtn" style="flex:1;">Use These Lyrics</button>
+                    <button class="btn-outline" id="tryNextSourceBtn" style="flex:1;">Try next source →</button>
+                  </div>
+                  <div id="lyricsFallback">
+                    <a id="fallbackLink" target="_blank" class="field-link"
+                       style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                      </svg>
+                      Open search in browser
+                    </a>
+                    <button id="toggleManualSearch" class="btn-outline"
+                            style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:6px 10px;width:auto;">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                      </svg>
+                      Manual Search
+                    </button>
+                  </div>
+                  <div id="manualSearchPanel" hidden style="margin-top:8px;border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,0.02);">
+                    <div style="display:flex;gap:6px;margin-bottom:6px;">
+                      <input id="manualSearchQuery" type="text" dir="auto" placeholder='"{song}" "{artist}" מילים לשיר'
+                             style="flex:1;padding:8px 10px;font-size:13px;border-radius:8px;">
+                      <button id="manualDdgBtn" class="secondary" style="white-space:nowrap;padding:6px 12px;font-size:12px;">Search DDG</button>
+                    </div>
+                    <div id="manualSearchResults" style="display:none;max-height:200px;overflow-y:auto;font-size:12px;">
+                    </div>
+                    <div style="display:flex;gap:6px;margin-top:6px;">
+                      <button id="manualFetchUrlBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">Fetch from URL</button>
+                      <button id="manualLlmBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">LLM Extract</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1563,7 +1556,7 @@
     const MIN_ZOOM_SECONDS = 0.35;
     const MIN_WORD_ORDER_GAP = 0.001;
     const PLAYHEAD_DRAG_SENSITIVITY = 0.2;
-    const LYRICS_SOURCE_DEFAULT_URL = "https://shirrim.com/singers/israel-singers/";
+    const LYRICS_SOURCE_DEFAULT_URL = "https://shironet.mako.co.il/";
     const LYRICS_TEXT_DEBOUNCE_MS = 500;
 
     const $ = (id) => document.getElementById(id);
@@ -1634,8 +1627,6 @@
       lyricsList: $("lyricsList"),
       pasteLyrics: $("pasteLyrics"),
       processLyrics: $("processLyrics"),
-      lyricsUrl: $("lyricsUrl"),
-      fetchLyrics: $("fetchLyrics"),
       saveLyrics: $("saveLyrics"),
 
       searchLyrics: $("searchLyrics"),
@@ -4870,40 +4861,6 @@
           applyLyricsTextLocally(rawText);
           updateStatusChip(ui.projectStatus, `Processed ${state.manifest.lines.length} lines from pasted lyrics.`, "ok");
           ui.processLyrics.disabled = false;
-        });
-      }
-      if (ui.lyricsUrl) {
-        ui.lyricsUrl.addEventListener("input", () => {
-          ui.fetchLyrics.disabled = !ui.lyricsUrl.value.trim();
-        });
-      }
-      if (ui.fetchLyrics) {
-        ui.fetchLyrics.addEventListener("click", async () => {
-          const url = ui.lyricsUrl.value.trim();
-          if (!url) return;
-          ui.fetchLyrics.disabled = true;
-          try {
-            const result = await fetchJson("/api/lyrics/import", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ lyrics_url: url }),
-            });
-            if (result.lyrics_text) {
-              updateLyricsSourceLink(result.lyrics_source_url || url);
-              applyLyricsTextLocally(result.lyrics_text);
-              updateStatusChip(
-                ui.projectStatus,
-                result.lyrics_title ? `Lyrics imported: ${result.lyrics_title}` : "Lyrics imported.",
-                "ok",
-              );
-            } else {
-              updateStatusChip(ui.projectStatus, "No lyrics found at that URL.", "warn");
-            }
-          } catch (error) {
-            updateStatusChip(ui.projectStatus, error.message, "warn");
-          } finally {
-            ui.fetchLyrics.disabled = false;
-          }
         });
       }
       if (ui.searchLyrics) {

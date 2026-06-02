@@ -1520,45 +1520,6 @@ def test_timing_editor_youtube_lyrics_search_does_not_fallback_to_wrong_song() -
     mock_fetch.assert_not_called()
 
 
-def test_timing_editor_imports_lyrics_from_shirrim_url(tmp_path: Path) -> None:
-    temp_dir = tmp_path / "temp"
-    output_dir = tmp_path / "output"
-    logs_dir = tmp_path / "logs"
-    input_dir = tmp_path / "input"
-    temp_dir.mkdir()
-    output_dir.mkdir()
-    logs_dir.mkdir()
-    input_dir.mkdir()
-    _ensure_test_subdirs(temp_dir)
-
-    config_path = tmp_path / "config.yaml"
-    _write_config(config_path, temp_dir, output_dir, logs_dir)
-
-    app = create_app(config_path)
-    app.testing = True
-    client = app.test_client()
-
-    with patch(
-        "timing_editor._fetch_shirrim_lyrics",
-        return_value={
-            "lyrics": "line one\nline two",
-            "title": "מילים לשיר משהו",
-            "source_url": "https://shirrim.com/song-lyrics/example/",
-        },
-    ) as mock_fetch:
-        response = client.post(
-            "/api/lyrics/import",
-            json={"lyrics_url": "https://shirrim.com/song-lyrics/example/"},
-        )
-
-    assert response.status_code == 200, response.get_json()
-    payload = response.get_json()
-    assert payload["ok"] is True
-    assert payload["lyrics"] == "line one\nline two"
-    assert payload["title"] == "מילים לשיר משהו"
-    mock_fetch.assert_called_once_with("https://shirrim.com/song-lyrics/example/")
-
-
 def test_fetch_shirrim_lyrics_follows_chords_page_to_lyrics() -> None:
     chords_html = """
     <html><body>
