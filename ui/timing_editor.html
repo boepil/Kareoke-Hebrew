@@ -991,19 +991,20 @@
       gap: 8px;
       padding: 11px 16px;
       border-radius: 10px;
-      border: none;
-      background: #FFC107;
-      color: #1a1a1a;
-      font-weight: 700;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-weight: 600;
       font-size: 14px;
       cursor: pointer;
+      transition: all 0.2s ease;
     }
-    .btn-primary:hover { background: #ffd54f; }
+    .btn-primary:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.15); }
     .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
     .btn-primary.saved {
-      background: rgba(76, 175, 80, 0.2);
-      color: #4CAF50;
-      border: 1px solid #4CAF50;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      border: 1px solid var(--line);
     }
 
     /* Red outline button */
@@ -1047,6 +1048,9 @@
     /* Side-by-side button row */
     .btn-row { display: flex; gap: 8px; }
     .btn-row > * { flex: 1; min-width: 0; }
+
+    /* Reliable toggleable hide — overrides any inline display style */
+    .btn-hidden { display: none !important; }
 
     /* Combined input field */
     .combined-input {
@@ -1097,20 +1101,43 @@
     .status-pill {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      padding: 10px 14px;
+      gap: 6px;
+      padding: 12px 14px;
       border-radius: 12px;
-      background: rgba(0,0,0,0.35);
+      background: rgba(0,0,0,0.3);
       border: 1px solid rgba(255,255,255,0.06);
     }
-    .status-pill .chip { align-self: flex-start; }
-    .status-pill .path-value { font-size: 11px; }
+    .status-pill .chip {
+      background: transparent !important;
+      border: none !important;
+      padding: 0 !important;
+      color: var(--text) !important;
+      font-size: 13px !important;
+      text-align: left !important;
+      justify-content: flex-start !important;
+      font-weight: 500 !important;
+      min-width: 0 !important;
+      align-self: stretch !important;
+      border-radius: 0 !important;
+    }
+    .status-pill .chip.ok {
+      color: var(--text) !important;
+    }
+    .status-pill .chip.warn {
+      color: #fb7c5e !important;
+    }
+    .status-pill .path-value {
+      font-size: 11px;
+      color: var(--muted);
+      word-break: break-all;
+    }
 
     /* Pill toggle buttons */
     .pill-group {
       display: flex;
       border-radius: 10px;
-      overflow: hidden;
+      padding: 2px;
+      background: rgba(255, 255, 255, 0.02);
       border: 1px solid var(--line);
     }
     .pill-btn {
@@ -1119,18 +1146,21 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 9px 12px;
-      border: none;
+      padding: 7px 12px;
+      border: 1px solid transparent;
       background: transparent;
       color: var(--muted);
       font-weight: 600;
       font-size: 13px;
       cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s ease;
     }
-    .pill-btn:hover { background: rgba(255,255,255,0.04); }
+    .pill-btn:hover { background: rgba(255,255,255,0.02); color: var(--text); }
     .pill-btn.active {
-      background: #FFC107;
-      color: #1a1a1a;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.15);
     }
     .pill-btn svg { flex: none; opacity: 0.65; }
     .pill-btn.active svg { opacity: 1; }
@@ -1144,7 +1174,24 @@
       border-radius: 12px;
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.03);
+      transition: border-color 220ms ease;
     }
+    .pipeline-card[hidden] { display: none !important; }
+    .pipeline-card.idle    { border-color: rgba(255,255,255,0.08); }
+    .pipeline-card.running { border-color: rgba(255,193,7,0.3); }
+    .pipeline-card.completed { border-color: rgba(76,175,80,0.3); }
+    .pipeline-card.error   { border-color: rgba(244,67,54,0.3); }
+    .pipeline-card.idle .pipeline-card-spin,
+    .pipeline-card.completed .pipeline-card-spin,
+    .pipeline-card.error .pipeline-card-spin {
+      display: none;
+    }
+    .pipeline-card.completed .pipeline-card-status { color: #4CAF50; }
+    .pipeline-card.error .pipeline-card-status { color: #f44336; }
+    .pipeline-card.idle .pipeline-card-status { color: var(--muted); }
+    .pipeline-card.completed .pipeline-fill { background: linear-gradient(90deg, #4CAF50, #66BB6A); }
+    .pipeline-card.error .pipeline-fill { background: linear-gradient(90deg, #f44336, #ef5350); }
+    .pipeline-card.idle .pipeline-fill { background: rgba(255,255,255,0.12); }
     .pipeline-card-row {
       display: flex;
       align-items: center;
@@ -1194,6 +1241,39 @@
       text-align: left;
     }
     .pipeline-link:hover { text-decoration: underline; }
+
+    .lyrics-preview-scroll {
+      max-height: 180px; overflow-y: auto; padding: 10px; margin: 8px 0;
+      border-radius: 12px; background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      font: 500 13px/1.6 var(--ui); direction: rtl; text-align: right;
+      white-space: pre-wrap; color: var(--text);
+    }
+    .lyrics-preview-scroll:empty { display: none; }
+    .lyrics-source-label { margin: 4px 0; }
+    .lyrics-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+    .lyrics-badge.ddg {
+      background: rgba(255, 167, 38, 0.18);
+      color: #FFA726;
+    }
+    .lyrics-badge.direct {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+    }
+    .lyrics-badge.llm {
+      background: rgba(171, 71, 188, 0.18);
+      color: #CE93D8;
+    }
 
     @media (max-width: 940px) {
       .shell { width: calc(100vw - 16px); margin: 8px auto; padding: 10px; }
@@ -1278,6 +1358,65 @@
             </button>
           </div>
 
+          <!-- Lyrics Search -->
+          <div class="sidebar-section">
+            <div class="sidebar-label">LYRICS SEARCH</div>
+            <button class="btn-primary" id="searchLyrics" disabled
+                    style="display:flex;align-items:center;justify-content:center;gap:8px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              Search Lyrics
+            </button>
+            <div id="lyricsPreview" hidden>
+              <div style="display:flex;align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap;">
+                <a id="lyricsSourceLink" target="_blank" class="field-link"
+                   style="display:none;font-size:12px;"></a>
+                <span class="lyrics-badge" id="lyricsDiscoveryBadge" style="display:none;font-size:10px;"></span>
+                <span class="lyrics-badge" id="lyricsExtractionBadge" style="display:none;font-size:10px;"></span>
+                <span class="chip" id="lyricsSourceStatus" style="font-size:11px;"></span>
+              </div>
+              <div class="lyrics-preview-scroll" id="lyricsPreviewText"></div>
+              <div class="btn-row" id="lyricsPreviewActions" style="gap:6px;">
+                <button class="btn-primary" id="useLyricsBtn" style="flex:1;">Use These Lyrics</button>
+                <button class="btn-outline" id="tryNextSourceBtn" style="flex:1;">Try next source →</button>
+              </div>
+              <div id="lyricsFallback">
+                <a id="fallbackLink" target="_blank" class="field-link"
+                   style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                  Open search in browser
+                </a>
+                <button id="toggleManualSearch" class="btn-outline"
+                        style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:6px 10px;width:auto;">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  Manual Search
+                </button>
+              </div>
+              <div id="manualSearchPanel" hidden style="margin-top:8px;border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,0.02);">
+                <div style="display:flex;gap:6px;margin-bottom:6px;">
+                  <input id="manualSearchQuery" type="text" dir="auto" placeholder='"{song}" "{artist}" מילים לשיר'
+                         style="flex:1;padding:8px 10px;font-size:13px;border-radius:8px;">
+                  <button id="manualDdgBtn" class="secondary" style="white-space:nowrap;padding:6px 12px;font-size:12px;">Search DDG</button>
+                </div>
+                <div id="manualSearchResults" style="display:none;max-height:200px;overflow-y:auto;font-size:12px;">
+                </div>
+                <div style="display:flex;gap:6px;margin-top:6px;">
+                  <button id="manualFetchUrlBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">Fetch from URL</button>
+                  <button id="manualLlmBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">LLM Extract</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Pipeline -->
           <div class="sidebar-section">
             <div class="sidebar-label">
@@ -1299,7 +1438,7 @@
                 <div class="pipeline-fill" id="pipelineProgressFill"></div>
               </div>
             </div>
-            <div class="small" id="pipelineDetail" style="display:none;"></div>
+            
           </div>
 
           <!-- AI -->
@@ -1311,7 +1450,7 @@
               </svg>
               AI Pass
             </button>
-            <button class="btn-danger" id="stopAiPass" hidden style="display:flex;align-items:center;justify-content:center;gap:8px;">
+            <button class="btn-danger btn-hidden" id="stopAiPass" style="display:flex;align-items:center;justify-content:center;gap:8px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="6" y="6" width="12" height="12" rx="2"/>
               </svg>
@@ -1342,6 +1481,7 @@
         <section class="section editor" style="position: relative;">
           <button class="panel-toggle left" id="toggleLeft" aria-label="Toggle Left Panel">◀</button>
           <button class="panel-toggle right" id="toggleRight" aria-label="Toggle Right Panel">▶</button>
+          <input id="projectTitle" class="project-title-input" type="text" placeholder="Singer / Project Name">
           <div class="preview empty" id="preview">Import a project to begin.</div>
           <audio id="audio" controls preload="metadata"></audio>
           <audio id="vocalsAudio" preload="metadata"></audio>
@@ -1403,7 +1543,7 @@
               </div>
               <div class="drawer-section">
                 <div class="drawer-section-title">Import from URL</div>
-                <input id="lyricsUrl" type="url" dir="ltr" placeholder="https://shirrim.com/song-lyrics/...">
+                <input id="lyricsUrl" type="url" dir="ltr" placeholder="https://shironet.mako.co.il/...">
                 <button id="fetchLyrics" disabled>Fetch</button>
               </div>
             </div>
@@ -1437,6 +1577,7 @@
       audioFile: $("audioFile"),
       lyricsText: $("lyricsText"),
       projectName: $("projectName"),
+      projectTitle: $("projectTitle"),
       projectSelect: $("projectSelect"),
       importProject: $("importProject"),
       aiFirstPass: $("aiFirstPass"),
@@ -1452,7 +1593,7 @@
       pipelineStatusLabel: $("pipelineStatusLabel"),
       pipelineElapsed: $("pipelineElapsed"),
       pipelineProgressFill: $("pipelineProgressFill"),
-      pipelineDetail: $("pipelineDetail"),
+
       preview: $("preview"),
       selectedWordLabel: $("selectedWordLabel"),
       zoomLabel: $("zoomLabel"),
@@ -1497,6 +1638,25 @@
       fetchLyrics: $("fetchLyrics"),
       saveLyrics: $("saveLyrics"),
 
+      searchLyrics: $("searchLyrics"),
+      lyricsPreview: $("lyricsPreview"),
+      lyricsSourceLink: $("lyricsSourceLink"),
+      lyricsSourceStatus: $("lyricsSourceStatus"),
+      lyricsDiscoveryBadge: $("lyricsDiscoveryBadge"),
+      lyricsExtractionBadge: $("lyricsExtractionBadge"),
+      lyricsPreviewText: $("lyricsPreviewText"),
+      useLyricsBtn: $("useLyricsBtn"),
+      tryNextSourceBtn: $("tryNextSourceBtn"),
+      lyricsFallback: $("lyricsFallback"),
+      fallbackLink: $("fallbackLink"),
+      toggleManualSearch: $("toggleManualSearch"),
+      manualSearchPanel: $("manualSearchPanel"),
+      manualSearchQuery: $("manualSearchQuery"),
+      manualDdgBtn: $("manualDdgBtn"),
+      manualSearchResults: $("manualSearchResults"),
+      manualFetchUrlBtn: $("manualFetchUrlBtn"),
+      manualLlmBtn: $("manualLlmBtn"),
+
       shortcutHint: $("shortcutHint"),
     };
 
@@ -1532,6 +1692,8 @@
       lastSaveTimeMs: null,
       hasUnsavedChanges: false,
       clickedLineIndex: -1,
+      fetchResults: null,
+      fetchResultIndex: -1,
     };
 
     function clamp(value, min, max) {
@@ -1933,6 +2095,81 @@
       ui.lyricsSourceLink.textContent = safeUrl;
     }
 
+    function updateSearchLyricsButton() {
+      const title = (ui.projectTitle?.value || ui.projectName?.value || "").trim();
+      if (ui.searchLyrics) {
+        ui.searchLyrics.disabled = !title;
+      }
+    }
+
+    function showLyricsResult(index) {
+      const results = state.fetchResults;
+      const total = results ? results.length : 0;
+
+      if (!results || total === 0) {
+        ui.lyricsPreviewText.textContent = "No lyrics sources available.";
+        if (ui.lyricsSourceLink) { ui.lyricsSourceLink.style.display = "none"; }
+        if (ui.lyricsSourceStatus) { ui.lyricsSourceStatus.style.display = "none"; }
+        if (ui.lyricsDiscoveryBadge) { ui.lyricsDiscoveryBadge.style.display = "none"; }
+        if (ui.lyricsExtractionBadge) { ui.lyricsExtractionBadge.style.display = "none"; }
+        ui.useLyricsBtn.hidden = true;
+        ui.tryNextSourceBtn.hidden = true;
+        state.fetchResultIndex = index;
+        return;
+      }
+
+      const safeIndex = ((index % total) + total) % total;
+      const result = results[safeIndex];
+      ui.lyricsPreviewText.textContent = result.lyrics_text || result.error || "No lyrics found.";
+
+      if (result.success && result.source_url) {
+        if (ui.lyricsSourceLink) {
+          ui.lyricsSourceLink.href = result.source_url;
+          ui.lyricsSourceLink.textContent = `Fetched from ${result.source}`;
+          ui.lyricsSourceLink.style.display = "inline";
+        }
+        if (ui.lyricsSourceStatus) { ui.lyricsSourceStatus.style.display = "none"; }
+      } else {
+        if (ui.lyricsSourceLink) { ui.lyricsSourceLink.style.display = "none"; }
+        if (ui.lyricsSourceStatus) {
+          ui.lyricsSourceStatus.textContent = `${result.source}: ${result.error || "failed"}`;
+          ui.lyricsSourceStatus.className = "chip warn";
+          ui.lyricsSourceStatus.style.display = "inline";
+        }
+      }
+
+      if (ui.lyricsDiscoveryBadge) {
+        if (result.discovery_method === "ddg") {
+          ui.lyricsDiscoveryBadge.textContent = "via DuckDuckGo";
+          ui.lyricsDiscoveryBadge.className = "lyrics-badge ddg";
+          ui.lyricsDiscoveryBadge.style.display = "inline-block";
+        } else if (result.discovery_method === "direct") {
+          ui.lyricsDiscoveryBadge.textContent = "direct search";
+          ui.lyricsDiscoveryBadge.className = "lyrics-badge direct";
+          ui.lyricsDiscoveryBadge.style.display = "inline-block";
+        } else {
+          ui.lyricsDiscoveryBadge.style.display = "none";
+        }
+      }
+
+      if (ui.lyricsExtractionBadge) {
+        if (result.extraction_method === "llm") {
+          ui.lyricsExtractionBadge.textContent = "via local LLM";
+          ui.lyricsExtractionBadge.className = "lyrics-badge llm";
+          ui.lyricsExtractionBadge.style.display = "inline-block";
+        } else {
+          ui.lyricsExtractionBadge.style.display = "none";
+        }
+      }
+
+      const nextIndex = (safeIndex + 1) % total;
+      const nextSource = results[nextIndex].source;
+      ui.useLyricsBtn.hidden = !result.success;
+      ui.tryNextSourceBtn.hidden = false;
+      ui.tryNextSourceBtn.textContent = `Try next: ${nextSource} →`;
+      state.fetchResultIndex = safeIndex;
+    }
+
     function applyLyricsTextLocally(rawLyricsText) {
       markUnsaved();
       const nextManifest = buildManifestFromLyricsText(rawLyricsText, getAudioDuration());
@@ -2214,6 +2451,8 @@
 
       state.pipelineRunning = status === "running";
 
+      ui.pipelineCard.classList.remove("idle", "running", "completed", "error");
+
       if (status === "running") {
         const stageName = currentStage?.label || payload?.current_stage_label || "Pipeline";
         ui.pipelineStage.textContent = stageName;
@@ -2221,22 +2460,39 @@
         ui.pipelineElapsed.textContent = elapsed;
         ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
-        ui.pipelineDetail.style.display = "none";
+        ui.pipelineCard.classList.add("running");
+        updateStatusChip(ui.projectStatus, `Running: ${stageName}...`, "ok");
+      } else if (status === "completed") {
+        ui.pipelineStage.textContent = "Pipeline complete";
+        ui.pipelineStatusLabel.textContent = "✓";
+        ui.pipelineElapsed.textContent = "";
+        ui.pipelineProgressFill.style.width = "100%";
+        ui.pipelineCard.hidden = false;
+        ui.pipelineCard.classList.add("completed");
+      } else if (status === "error") {
+        const errMsg = payload?.error || "Pipeline failed";
+        const failedStage = stages.find((s) => s && s.status === "error");
+        const stageName = failedStage?.label || payload?.current_stage_label || "";
+        ui.pipelineStage.textContent = stageName ? `${stageName}: ${errMsg}` : errMsg;
+        ui.pipelineStatusLabel.textContent = "✕";
+        ui.pipelineElapsed.textContent = "";
+        ui.pipelineProgressFill.style.width = `${progress}%`;
+        ui.pipelineCard.hidden = false;
+        ui.pipelineCard.classList.add("error");
       } else {
-        ui.pipelineCard.hidden = true;
-        const detailMsg = status === "completed"
-          ? "Pipeline complete"
-          : status === "error"
-            ? (payload?.error || "Pipeline failed")
-            : "No pipeline running.";
-        if (ui.pipelineDetail) {
-          ui.pipelineDetail.textContent = detailMsg;
-          ui.pipelineDetail.style.display = "block";
-        }
+        ui.pipelineStage.textContent = "Pipeline idle";
+        ui.pipelineStatusLabel.textContent = "Ready";
+        ui.pipelineElapsed.textContent = "";
+        ui.pipelineProgressFill.style.width = "0%";
+        ui.pipelineCard.hidden = false;
+        ui.pipelineCard.classList.add("idle");
       }
 
+      if (ui.aiFirstPass) {
+        ui.aiFirstPass.classList.toggle("btn-hidden", status === "running");
+      }
       if (ui.stopAiPass) {
-        ui.stopAiPass.hidden = status !== "running";
+        ui.stopAiPass.classList.toggle("btn-hidden", status !== "running");
       }
     }
 
@@ -2257,6 +2513,16 @@
       state.pipelineAwaitingProjectLoad = false;
       stopPipelinePolling();
       await loadProject({ bustCache: true });
+      // Retry stem source setup — stems might not be ready immediately after
+      // pipeline completes (race between state artifact write and audio reload).
+      let stemRetries = 0;
+      const retryStems = () => {
+        if (state.stemMixAvailable || stemRetries >= 5) return;
+        stemRetries++;
+        setupStemPlaybackSources();
+        setTimeout(retryStems, 1500);
+      };
+      setTimeout(retryStems, 500);
     }
 
     function startPipelinePolling() {
@@ -3208,10 +3474,11 @@
         ui.deleteProject.disabled = !hasProject;
       }
       if (ui.aiFirstPass) {
-        ui.aiFirstPass.disabled = !hasProject || Boolean(state.pipelineRunning);
+        ui.aiFirstPass.disabled = !hasProject;
+        ui.aiFirstPass.classList.toggle("btn-hidden", Boolean(state.pipelineRunning));
       }
       if (ui.stopAiPass) {
-        ui.stopAiPass.hidden = !Boolean(state.pipelineRunning);
+        ui.stopAiPass.classList.toggle("btn-hidden", !Boolean(state.pipelineRunning));
       }
       if (ui.jumpWord) {
         const selected = getSelectedWord();
@@ -3605,6 +3872,10 @@
       if (ui.projectName && typeof state.session.project_name === "string") {
         ui.projectName.value = state.session.project_name;
       }
+      if (ui.projectTitle && typeof state.session.project_name === "string") {
+        ui.projectTitle.value = state.session.project_name;
+      }
+      updateSearchLyricsButton();
       ui.pathsStatus.textContent = displayOutputName(state.session.output_video_name);
       if (typeof state.session.lyrics_text === "string") {
         ui.lyricsText.value = state.session.lyrics_text;
@@ -3818,19 +4089,22 @@
         });
         ui.youtubeUrl.value = "";
         
-        // Load project immediately (audio.wav + lyrics are ready synchronously)
-        await loadProject({ bustCache: true });
-        
-        const hasLyrics = Boolean(String(state.session?.lyrics_text || "").trim());
-        if (responsePayload.lyrics_source_url && hasLyrics) {
-          updateLyricsSourceLink(responsePayload.lyrics_source_url);
-          updateStatusChip(ui.projectStatus, responsePayload.lyrics_title ? `Lyrics imported: ${responsePayload.lyrics_title}` : "Lyrics imported. Stems processing...", "ok");
-        } else {
-          updateLyricsSourceLink("");
-          updateStatusChip(ui.projectStatus, "No lyrics found. Stems processing...", "warn");
+        // If project is already fully built (synchronous testing/dev mode),
+        // load it immediately and show status
+        if (responsePayload.status === "completed") {
+          await loadProject({ bustCache: true });
+          updateStatusChip(ui.projectStatus, "YouTube import complete.", "ok");
+          ui.importProject.disabled = false;
+          return;
+        }
+        if (responsePayload.status === "error") {
+          await loadProject({ bustCache: true });
+          updateStatusChip(ui.projectStatus, responsePayload.error || "Import failed.", "warn");
+          ui.importProject.disabled = false;
+          return;
         }
 
-        // Stems are still processing in background — poll until complete
+        // Async path: poll pipeline for download → lyrics → stem separation
         if (responsePayload.status === "running") {
           state.pipelineAwaitingProjectLoad = true;
           try {
@@ -3846,21 +4120,6 @@
           }
           return;
         }
-        stopPipelinePolling();
-        renderPipelineStatus(responsePayload);
-        await loadProject({ bustCache: true });
-        if (responsePayload.lyrics_source_url && responsePayload.lyrics_found !== false && String(state.session?.lyrics_text || "").trim()) {
-          updateLyricsSourceLink(responsePayload.lyrics_source_url);
-        } else {
-          updateLyricsSourceLink("");
-        }
-        updateStatusChip(
-          ui.projectStatus,
-          responsePayload.lyrics_found === false || !String(state.session?.lyrics_text || "").trim()
-            ? "No lyrics found."
-            : (responsePayload.lyrics_title ? `Lyrics imported: ${responsePayload.lyrics_title}` : "Audio imported and project built."),
-          responsePayload.lyrics_found === false || !String(state.session?.lyrics_text || "").trim() ? "warn" : "ok",
-        );
       } catch (error) {
         updateStatusChip(ui.projectStatus, error.message, "warn");
       } finally {
@@ -4578,6 +4837,25 @@
       if (ui.saveLyrics) {
         ui.saveLyrics.addEventListener("click", saveProject);
       }
+      if (ui.projectTitle) {
+        ui.projectTitle.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            ui.projectTitle.blur();
+            saveProject();
+          }
+        });
+        ui.projectTitle.addEventListener("input", () => {
+          if (ui.projectName) ui.projectName.value = ui.projectTitle.value;
+          updateSearchLyricsButton();
+        });
+      }
+      if (ui.projectName) {
+        ui.projectName.addEventListener("input", () => {
+          if (ui.projectTitle) ui.projectTitle.value = ui.projectName.value;
+          updateSearchLyricsButton();
+        });
+      }
       if (ui.pasteLyrics) {
         ui.pasteLyrics.addEventListener("input", () => {
           ui.processLyrics.disabled = !ui.pasteLyrics.value.trim();
@@ -4625,6 +4903,232 @@
             updateStatusChip(ui.projectStatus, error.message, "warn");
           } finally {
             ui.fetchLyrics.disabled = false;
+          }
+        });
+      }
+      if (ui.searchLyrics) {
+        ui.searchLyrics.addEventListener("click", async () => {
+          const title = (ui.projectTitle?.value || ui.projectName?.value || "").trim();
+          if (!title) return;
+          ui.searchLyrics.disabled = true;
+          ui.searchLyrics.textContent = "Searching...";
+          try {
+            const res = await fetchJson("/api/fetch_lyrics", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_name: title }),
+            });
+            state.fetchResults = res.results;
+            state.fetchResultIndex = -1;
+            if (ui.fallbackLink && res.fallback_search_url) {
+              ui.fallbackLink.href = res.fallback_search_url;
+            }
+            ui.lyricsPreview.hidden = false;
+            showLyricsResult(0);
+            const succeeded = res.results.filter((r) => r.success).length;
+            const ddgHit = res.results.filter((r) => r.discovery_method === "ddg").length;
+            const ddgNote = res.ddg && res.ddg.results_count > 0
+              ? ` (DDG found ${res.ddg.results_count}, ${ddgHit} on-site)`
+              : "";
+            updateStatusChip(
+              ui.projectStatus,
+              `Lyrics search: ${succeeded}/${res.results.length} sources succeeded${ddgNote}`,
+              succeeded ? "ok" : "warn",
+            );
+          } catch (error) {
+            updateStatusChip(ui.projectStatus, error.message, "warn");
+          } finally {
+            ui.searchLyrics.disabled = false;
+            ui.searchLyrics.textContent = "Search Lyrics";
+          }
+        });
+      }
+      if (ui.useLyricsBtn) {
+        ui.useLyricsBtn.addEventListener("click", () => {
+          const idx = state.fetchResultIndex;
+          if (idx >= 0 && state.fetchResults && state.fetchResults[idx] && state.fetchResults[idx].success) {
+            applyLyricsTextLocally(state.fetchResults[idx].lyrics_text);
+            ui.lyricsPreview.hidden = true;
+            updateStatusChip(ui.projectStatus, `Lyrics applied from ${state.fetchResults[idx].source}`, "ok");
+          }
+        });
+      }
+      if (ui.tryNextSourceBtn) {
+        ui.tryNextSourceBtn.addEventListener("click", () => {
+          showLyricsResult((state.fetchResultIndex + 1) % state.fetchResults.length);
+        });
+      }
+      // Manual Search Panel
+      if (ui.toggleManualSearch) {
+        ui.toggleManualSearch.addEventListener("click", () => {
+          const panel = ui.manualSearchPanel;
+          const hidden = panel.hasAttribute("hidden");
+          panel.hidden = !hidden;
+          ui.toggleManualSearch.textContent = hidden ? "▲ Hide Search" : "Manual Search";
+          if (hidden) {
+            const title = (ui.projectTitle?.value || ui.projectName?.value || "").trim();
+            if (title) {
+              const parts = title.split(" - ");
+              const q = parts.length >= 2 ? `"${parts[0]}" "${parts[1]}" מילים לשיר` : `${title} מילים לשיר`;
+              ui.manualSearchQuery.value = q;
+            }
+            ui.manualSearchQuery.focus();
+          }
+        });
+      }
+      if (ui.manualDdgBtn) {
+        ui.manualDdgBtn.addEventListener("click", async () => {
+          const query = ui.manualSearchQuery.value.trim();
+          if (!query) return;
+          ui.manualDdgBtn.disabled = true;
+          ui.manualDdgBtn.textContent = "Searching...";
+          try {
+            const res = await fetchJson("/api/lyrics/search_ddg", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({query}),
+            });
+            const container = ui.manualSearchResults;
+            container.innerHTML = "";
+            container.style.display = "block";
+            if (!res.results || res.results.length === 0) {
+              container.innerHTML = '<div style="color:var(--muted);padding:8px;">No results found.</div>';
+              return;
+            }
+            res.results.slice(0, 20).forEach((r, i) => {
+              const row = document.createElement("div");
+              row.style.cssText = "display:flex;align-items:center;gap:6px;padding:6px 4px;border-bottom:1px solid var(--line);cursor:pointer;";
+              row.addEventListener("click", async () => {
+                row.style.opacity = "0.5";
+                try {
+                  const fetchRes = await fetchJson("/api/lyrics/fetch_url", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({url: r.href, song: "", artist: ""}),
+                  });
+                  if (fetchRes.lyrics_text) {
+                    state.fetchResults = [{
+                      source: r.domain || "unknown",
+                      source_url: r.href,
+                      lyrics_text: fetchRes.lyrics_text,
+                      success: true,
+                      error: "",
+                      discovery_method: "manual",
+                      extraction_method: fetchRes.extraction_method || "selector",
+                    }];
+                    state.fetchResultIndex = -1;
+                    ui.lyricsPreview.hidden = false;
+                    showLyricsResult(0);
+                    updateStatusChip(ui.projectStatus, `Fetched from ${r.domain || "URL"}`, "ok");
+                  } else {
+                    updateStatusChip(ui.projectStatus, "No lyrics found at that URL.", "warn");
+                  }
+                } catch (err) {
+                  updateStatusChip(ui.projectStatus, err.message, "warn");
+                }
+                row.style.opacity = "1";
+              });
+              const badge = document.createElement("span");
+              const domain = r.domain || "link";
+              badge.style.cssText = "padding:1px 5px;border-radius:6px;background:rgba(255,255,255,0.08);color:var(--muted);font-size:10px;white-space:nowrap;";
+              badge.textContent = domain;
+              const text = document.createElement("span");
+              text.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:ltr;text-align:left;";
+              text.textContent = r.title || r.href;
+              row.append(badge, text);
+              container.appendChild(row);
+            });
+          } catch (error) {
+            updateStatusChip(ui.projectStatus, error.message, "warn");
+          } finally {
+            ui.manualDdgBtn.disabled = false;
+            ui.manualDdgBtn.textContent = "Search DDG";
+          }
+        });
+      }
+      if (ui.manualFetchUrlBtn) {
+        ui.manualFetchUrlBtn.addEventListener("click", async () => {
+          const url = ui.manualSearchQuery.value.trim();
+          if (!url || !url.startsWith("http")) {
+            updateStatusChip(ui.projectStatus, "Enter a valid URL to fetch.", "warn");
+            return;
+          }
+          ui.manualFetchUrlBtn.disabled = true;
+          ui.manualFetchUrlBtn.textContent = "Fetching...";
+          try {
+            const res = await fetchJson("/api/lyrics/fetch_url", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({url, song: "", artist: ""}),
+            });
+            if (res.lyrics_text) {
+              state.fetchResults = [{
+                source: res.source || "unknown",
+                source_url: res.source_url || url,
+                lyrics_text: res.lyrics_text,
+                success: true,
+                error: "",
+                discovery_method: "manual",
+                extraction_method: res.extraction_method || "selector",
+              }];
+              state.fetchResultIndex = -1;
+              ui.lyricsPreview.hidden = false;
+              showLyricsResult(0);
+              updateStatusChip(ui.projectStatus, "URL fetched successfully.", "ok");
+            } else {
+              updateStatusChip(ui.projectStatus, res.error || "No lyrics found.", "warn");
+            }
+          } catch (error) {
+            updateStatusChip(ui.projectStatus, error.message, "warn");
+          } finally {
+            ui.manualFetchUrlBtn.disabled = false;
+            ui.manualFetchUrlBtn.textContent = "Fetch from URL";
+          }
+        });
+      }
+      if (ui.manualLlmBtn) {
+        ui.manualLlmBtn.addEventListener("click", async () => {
+          const idx = state.fetchResultIndex;
+          const url = (idx >= 0 && state.fetchResults && state.fetchResults[idx])
+            ? state.fetchResults[idx].source_url : "";
+          if (!url) {
+            updateStatusChip(ui.projectStatus, "No source URL available. Search or fetch a URL first.", "warn");
+            return;
+          }
+          const title = (ui.projectTitle?.value || ui.projectName?.value || "").trim();
+          const parts = title.split(" - ");
+          const song = parts.length >= 2 ? parts[0] : title;
+          const artist = parts.length >= 2 ? parts[1] : "";
+          ui.manualLlmBtn.disabled = true;
+          ui.manualLlmBtn.textContent = "LLM extracting...";
+          try {
+            const res = await fetchJson("/api/lyrics/llm_extract", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({url, song, artist}),
+            });
+            if (res.lyrics_text) {
+              state.fetchResults = [{
+                source: "LLM extraction",
+                source_url: url,
+                lyrics_text: res.lyrics_text,
+                success: true,
+                error: "",
+                discovery_method: "manual",
+                extraction_method: "llm",
+              }];
+              state.fetchResultIndex = -1;
+              ui.lyricsPreview.hidden = false;
+              showLyricsResult(0);
+              updateStatusChip(ui.projectStatus, "LLM extracted lyrics.", "ok");
+            } else {
+              updateStatusChip(ui.projectStatus, res.error || "LLM could not extract lyrics.", "warn");
+            }
+          } catch (error) {
+            updateStatusChip(ui.projectStatus, error.message, "warn");
+          } finally {
+            ui.manualLlmBtn.disabled = false;
+            ui.manualLlmBtn.textContent = "LLM Extract";
           }
         });
       }

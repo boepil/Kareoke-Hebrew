@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 from timing_editor import (
     _build_manual_subtitles,
+    _ddg_pick_url_for_site,
+    _ddg_search_lyrics_url,
     _default_pipeline_job,
     _default_output_video_path,
     _editor_paths,
@@ -207,7 +209,8 @@ def test_timing_editor_import_creates_manual_project(tmp_path: Path) -> None:
     assert state["source_name"] == "song.mp3"
     assert state["project_name"] == "song"
     assert Path(state["artifacts"]["audio_wav"]).name == "audio.wav"
-    assert "no_vocals_wav" not in state["artifacts"]
+    assert state["artifacts"]["vocals_wav"].endswith("vocals.wav")
+    assert state["artifacts"]["no_vocals_wav"].endswith("no_vocals.wav")
 
     assert _default_output_video_path(paths).name == "song (Kareoke).mp4"
 
@@ -1455,7 +1458,7 @@ def test_timing_editor_youtube_project_name_uses_title_only_and_strips_suffixes(
             "channel": "Channel Name",
             "artist": "Channel Name",
         },
-    ), patch("timing_editor._search_shirrim_results", return_value=[]):
+    ), patch("timing_editor._direct_search_shironet", return_value={"success": False, "lyrics_text": "", "source_url": ""}), patch("timing_editor._search_shirrim_results", return_value=[]):
         details = _discover_project_details_from_youtube(
             "https://youtube.com/watch?v=titleonly",
             "fallback-name.mp3",
@@ -1474,7 +1477,7 @@ def test_timing_editor_youtube_project_name_falls_back_to_filename_when_title_mi
             "channel": "Channel Name",
             "artist": "Channel Name",
         },
-    ), patch("timing_editor._search_shirrim_results", return_value=[]):
+    ), patch("timing_editor._direct_search_shironet", return_value={"success": False, "lyrics_text": "", "source_url": ""}), patch("timing_editor._search_shirrim_results", return_value=[]):
         details = _discover_project_details_from_youtube(
             "https://youtube.com/watch?v=titlemissing",
             "Fallback Song [abc123].mp3",
@@ -1493,6 +1496,9 @@ def test_timing_editor_youtube_lyrics_search_does_not_fallback_to_wrong_song() -
             "channel": "Official Channel",
             "artist": "אהוד בנאי",
         },
+    ), patch(
+        "timing_editor._direct_search_shironet",
+        return_value={"success": False, "lyrics_text": "", "source_url": ""},
     ), patch(
         "timing_editor._search_shirrim_results",
         return_value=[
@@ -1612,3 +1618,51 @@ def test_timing_editor_rejects_non_youtube_url_in_youtube_import(tmp_path: Path)
     assert response.status_code == 400
     payload = response.get_json()
     assert "youtube.com or youtu.be" in payload["error"]
+
+
+# ----- DuckDuckGo-based lyrics URL discovery tests -----
+
+
+def test_ddg_pick_url_for_site_matches_target() -> None:
+    """Returns the first result whose URL belongs to the target site."""
+    results = [
+        {"title": "nagnu page", "href": "https://www.nagnu.co.il/x/y", "body": ""},
+        {"title": "shirrim page", "href": "https://www.shirrim.com/song-lyrics/x/", "body": ""},
+    ]
+    assert _ddg_pick_url_for_site("nagnu.co.il", results) == "https://www.nagnu.co.il/x/y"
+    assert _ddg_pick_url_for_site("shirrim.com", results) == "https://www.shirrim.com/song-lyrics/x/"
+
+
+def test_ddg_pick_url_for_site_returns_none_when_no_match() -> None:
+    """Returns None when no result is on the target site (does not fall back to other sites)."""
+    results = [
+        {"title": "nagnu page", "href": "https://www.nagnu.co.il/x/y", "body": ""},
+        {"title": "shironet", "href": "https://shironet.mako.co.il/artist?type=lyrics", "body": ""},
+    ]
+    assert _ddg_pick_url_for_site("example.com", results) is None
+    assert _ddg_pick_url_for_site("shirrim.com", results) is None
+
+
+def test_ddg_pick_url_for_site_empty_results() -> None:
+    """Returns None on empty input."""
+    assert _ddg_pick_url_for_site("shirrim.com", []) is None
+
+
+def test_ddg_search_lyrics_url_handles_missing_package(monkeypatch) -> None:
+    """When ddgs is not importable, returns [] without raising."""
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "ddgs":
+            raise ImportError("No module named 'ddgs'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert _ddg_search_lyrics_url("שיר כלשהו", "זמר כלשהו") == []
+
+
+def test_ddg_search_lyrics_url_handles_empty_input() -> None:
+    """When song and artist are both empty, returns [] without calling ddgs."""
+    assert _ddg_search_lyrics_url("", "") == []
+    assert _ddg_search_lyrics_url("  ", "") == []

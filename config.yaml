@@ -96,6 +96,8 @@ autosync:
   correction_endpoint_url: http://127.0.0.1:1234/v1/chat/completions
   correction_model_id: aya-expanse-8b
   correction_timeout_seconds: 180
+  lyrics_extraction_enabled: true
+  lyrics_extraction_timeout_seconds: 30
 
 lyrics_source:
   enabled: false

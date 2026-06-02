@@ -435,3 +435,147 @@ def correct_transcript_with_lm_studio(
         transcript["correction_status"] = "skipped"
         transcript["correction_reason"] = "request_failed"
         return transcript
+
+
+# ----- LLM-assisted lyrics extraction (fallback for messy page scrapes) -----
+
+
+DEFAULT_EXTRACTION_TIMEOUT_SECONDS = 30.0
+_EXTRACTION_PROMPT_SYSTEM = (
+    "You extract Hebrew song lyrics from webpage text. "
+    "Given the user-provided page text, song title, and artist, return ONLY the sung lyrics: "
+    "strip metadata, ads, comments, chord notations, song credits, and translation notes. "
+    "Preserve line breaks. If the page contains no lyrics for the requested song, "
+    "return an empty lyrics field. Reply with JSON only."
+)
+
+
+def build_extraction_settings(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Settings for LLM-assisted lyrics extraction. Shares endpoint/model with correction."""
+    autosync = _autosync_section(config)
+    endpoint_url = str(
+        autosync.get("correction_endpoint_url")
+        or autosync.get("lm_studio_endpoint_url")
+        or DEFAULT_CORRECTION_ENDPOINT
+    ).strip()
+    model_id = str(
+        autosync.get("correction_model_id")
+        or autosync.get("lm_studio_model_id")
+        or DEFAULT_CORRECTION_MODEL
+    ).strip()
+    enabled = bool(autosync.get("lyrics_extraction_enabled", autosync.get("correction_enabled", True)))
+    timeout_seconds = float(autosync.get("lyrics_extraction_timeout_seconds", DEFAULT_EXTRACTION_TIMEOUT_SECONDS))
+    return {
+        "enabled": enabled,
+        "endpoint_url": endpoint_url,
+        "model_id": model_id,
+        "timeout_seconds": max(timeout_seconds, 1.0),
+    }
+
+
+def extract_lyrics_from_page(
+    page_text: str,
+    song: str,
+    artist: str,
+    config: str | Path | Mapping[str, Any],
+) -> str:
+    """Extract clean Hebrew lyrics from raw page text using the local LLM.
+
+    Returns the extracted lyrics string, or "" on any failure (timeout, parse
+    error, LLM unreachable, or LLM returns no lyrics). Never raises.
+    """
+    page_text = html_unescape(str(page_text or "")).strip()
+    if not page_text:
+        return ""
+    if len(page_text) > 12000:
+        page_text = page_text[:12000]
+
+    try:
+        config_data = load_config(config)
+    except Exception as exc:
+        LOGGER.warning("Lyrics extraction: config load failed: %s", exc)
+        return ""
+
+    settings = build_extraction_settings(config_data)
+    if not settings["enabled"] or not settings["endpoint_url"] or not settings["model_id"]:
+        LOGGER.info("Lyrics extraction skipped: disabled or unconfigured")
+        return ""
+
+    try:
+        settings["model_id"] = _resolve_model_id(
+            str(settings["endpoint_url"]),
+            str(settings["model_id"]),
+            float(settings["timeout_seconds"]),
+        )
+    except Exception:
+        pass
+
+    user_content = json.dumps(
+        {"song": song, "artist": artist, "page_text": page_text},
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    request_payload = {
+        "model": settings["model_id"],
+        "messages": [
+            {"role": "system", "content": _EXTRACTION_PROMPT_SYSTEM},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0,
+        "stream": False,
+        "max_tokens": 2048,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "lyrics_extraction",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "lyrics": {"type": "string"},
+                    },
+                    "required": ["lyrics"],
+                    "additionalProperties": True,
+                },
+            },
+        },
+    }
+
+    try:
+        payload, request_mode = _request_with_fallback(
+            settings["endpoint_url"],
+            settings["timeout_seconds"],
+            request_payload,
+        )
+    except requests.ConnectionError:
+        LOGGER.info("Lyrics extraction skipped: endpoint unreachable")
+        return ""
+    except requests.Timeout:
+        LOGGER.info("Lyrics extraction skipped: request timeout")
+        return ""
+    except requests.HTTPError:
+        LOGGER.info("Lyrics extraction skipped: unsupported response format")
+        return ""
+    except Exception:
+        LOGGER.exception("Lyrics extraction skipped: request failed")
+        return ""
+
+    choices = payload.get("choices", []) if isinstance(payload, Mapping) else []
+    if not isinstance(choices, list) or not choices:
+        return ""
+    message = choices[0].get("message", {}) if isinstance(choices[0], Mapping) else {}
+    content = str(message.get("content", "")).strip()
+    if not content:
+        return ""
+    parsed = _extract_json_object(content)
+    if not parsed:
+        LOGGER.info("Lyrics extraction: response was not JSON preview=%s", content[:200])
+        return ""
+
+    raw_lyrics = str(parsed.get("lyrics", "")).strip()
+    if not raw_lyrics:
+        return ""
+    heb = sum(1 for c in raw_lyrics if 0x0590 <= ord(c) <= 0x05FF)
+    if heb < 20:
+        return ""
+    return raw_lyrics

@@ -33,6 +33,7 @@ from flask import Flask, Response, jsonify, request, send_file
 from main import load_config
 from modules.audio_extractor import extract_and_normalize_audio
 from modules.first_pass import run_first_pass_autosync
+from modules.lyrics_corrector import extract_lyrics_from_page
 from modules.renderer import render_video
 from modules.separator import separate_vocals
 from modules.subtitle_builder import (
@@ -1261,7 +1262,7 @@ def _infer_song_and_artist(youtube_metadata: Mapping[str, str], fallback_name: s
             return right, artist, normalized_title
         if normalized_artist and normalized_artist in _normalize_lookup_text(right).lower():
             return left, artist, normalized_title
-        return left, artist or right, normalized_title
+        return right, artist or left, normalized_title
 
     return normalized_title, artist, normalized_title
 
@@ -1389,39 +1390,6 @@ def _discover_project_details_from_youtube(youtube_url: str, fallback_name: str)
             "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
         }
 
-    scored_results: list[tuple[int, dict[str, str]]] = []
-    
-    # Strategy 1: Artist Page Search (Most reliable)
-    if expected_artist:
-        LOGGER.info("Trying artist page search for: %s", expected_artist)
-        for result in _search_shirrim_artist_page(expected_artist, expected_song):
-            score = _normalized_song_match_score(result["title"], song_query, artist_filter)
-            if score > 0:
-                scored_results.append((score, result))
-    
-    # Strategy 2: General Search (Fallback)
-    if not scored_results:
-        LOGGER.info("Falling back to general search for: %s", song_query)
-    scored_results: list[tuple[int, dict[str, str]]] = []
-    
-    # Try tiered search queries for better recall
-    queries = [
-        f"{song_query} {artist_filter}".strip(), # Tier 1: Song + Artist
-        song_query,                              # Tier 2: Song only (Broadest)
-    ]
-    
-    for query in queries:
-        if not query:
-            continue
-        LOGGER.info("Trying Shirrim search with query: %s", query)
-        for result in _search_shirrim_results(query):
-            score = _normalized_song_match_score(result["title"], song_query, artist_filter)
-            if score > 0:
-                scored_results.append((score, result))
-        if scored_results:
-            break # Found matches with a specific query, stop expanding search
-
-
     base_payload = {
         "lyrics_text": "",
         "project_name": "",
@@ -1432,13 +1400,85 @@ def _discover_project_details_from_youtube(youtube_url: str, fallback_name: str)
         "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
     }
 
+    scored_results: list[tuple[int, dict[str, str]]] = []
+    
+    # Strategy 1a: DuckDuckGo-discovered shironet URL (primary source)
+    ddg_results = _ddg_search_lyrics_url(expected_song, expected_artist, max_results=16)
+    ddg_shironet_url = _ddg_pick_url_for_site("shironet.mako.co.il", ddg_results) if ddg_results else None
+    LOGGER.info("DDG shironet URL: %s", ddg_shironet_url or "<none>")
+    if ddg_shironet_url and "prfid=" in ddg_shironet_url and "wrkid=" in ddg_shironet_url:
+        try:
+            payload = _fetch_shironet_lyrics_from_url(
+                ddg_shironet_url,
+                song=expected_song,
+                artist=expected_artist,
+                config_path=base_paths.config_path,
+            )
+            text = str(payload.get("lyrics", "")).strip()
+            if text:
+                LOGGER.info("Found lyrics via DDG shironet URL: %s", ddg_shironet_url)
+                return {
+                    "lyrics_text": text,
+                    "project_name": "",
+                    "youtube_project_name": youtube_project_name,
+                    "lyrics_source_url": str(payload.get("source_url", "")).strip() or ddg_shironet_url,
+                    "lyrics_title": "",
+                    "youtube_title": str(youtube_metadata.get("title", "")).strip(),
+                    "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
+                }
+        except Exception as exc:
+            LOGGER.warning("DDG shironet URL fetch failed: %s", exc)
+
+    # Strategy 1b: Direct shironet search (fallback if DDG URL didn't yield lyrics)
+    if expected_artist:
+        LOGGER.info("Trying direct shironet search for: %s - %s", expected_artist, expected_song)
+    else:
+        LOGGER.info("Trying direct shironet search for: %s", expected_song)
+    shironet_result = _direct_search_shironet(expected_song, expected_artist or "")
+    if shironet_result.get("success") and shironet_result.get("lyrics_text", "").strip():
+        LOGGER.info("Found lyrics on shironet via direct search")
+        return {
+            "lyrics_text": str(shironet_result.get("lyrics_text", "")).strip(),
+            "project_name": "",
+            "youtube_project_name": youtube_project_name,
+            "lyrics_source_url": str(shironet_result.get("source_url", "")).strip(),
+            "lyrics_title": "",
+            "youtube_title": str(youtube_metadata.get("title", "")).strip(),
+            "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
+        }
+    
+    # Strategy 2: Shirrim Artist Page Search
+    if expected_artist:
+        LOGGER.info("Trying shirrim artist page search for: %s", expected_artist)
+        for result in _search_shirrim_artist_page(expected_artist, expected_song):
+            score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+            if score > 0:
+                scored_results.append((score, result))
+    
+    # Strategy 3: Shirrim General Search
     if not scored_results:
-        LOGGER.info("No suitable song matches found on Shirrim")
+        queries = [
+            f"{song_query} {artist_filter}".strip(),
+            song_query,
+        ]
+        for query in queries:
+            if not query:
+                continue
+            LOGGER.info("Trying shirrim search with query: %s", query)
+            for result in _search_shirrim_results(query):
+                score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+                if score > 0:
+                    scored_results.append((score, result))
+            if scored_results:
+                break
+
+    if not scored_results:
+        LOGGER.info("No suitable song matches found on shirrim")
         return base_payload
 
     scored_results.sort(key=lambda item: item[0], reverse=True)
     best_score, best_result = scored_results[0]
-    LOGGER.info("Best match: %s (Score: %d)", best_result["title"], best_score)
+    LOGGER.info("Best shirrim match: %s (Score: %d)", best_result["title"], best_score)
     if best_score < 40:
         LOGGER.info("Best score %d is below threshold (40)", best_score)
         return base_payload
@@ -1470,8 +1510,6 @@ def _discover_project_details_from_youtube(youtube_url: str, fallback_name: str)
         "youtube_artist": str(youtube_metadata.get("artist", "") or youtube_metadata.get("uploader", "")).strip(),
     }
 
-    return base_payload
-
 
 def _discover_project_details_from_audio_filename(audio_filename: str) -> dict[str, str]:
     original_name = str(audio_filename or "").strip()
@@ -1488,25 +1526,6 @@ def _discover_project_details_from_audio_filename(audio_filename: str) -> dict[s
     song_query = _hebrew_only_text(song) or _normalize_lookup_text(song)
     artist_filter = _hebrew_only_text(artist) or _normalize_lookup_text(artist)
 
-    scored_results: list[tuple[int, dict[str, str]]] = []
-    
-    # Try tiered search queries for better recall
-    queries = [
-        f"{song_query} {artist_filter}".strip(), # Tier 1: Song + Artist
-        song_query,                              # Tier 2: Song only (Broadest)
-    ]
-    
-    for query in queries:
-        if not query:
-            continue
-        LOGGER.info("Trying Shirrim search with query: %s", query)
-        for result in _search_shirrim_results(query):
-            score = _normalized_song_match_score(result["title"], song_query, artist_filter)
-            if score > 0:
-                scored_results.append((score, result))
-        if scored_results:
-            break # Found matches with a specific query, stop expanding search
-
     base_payload = {
         "project_name": project_name,
         "lyrics_text": "",
@@ -1516,12 +1535,69 @@ def _discover_project_details_from_audio_filename(audio_filename: str) -> dict[s
         "source_artist": artist,
     }
 
+    # Strategy 1a: DuckDuckGo-discovered shironet URL (primary source)
+    ddg_results = _ddg_search_lyrics_url(song, artist, max_results=16)
+    ddg_shironet_url = _ddg_pick_url_for_site("shironet.mako.co.il", ddg_results) if ddg_results else None
+    LOGGER.info("DDG shironet URL: %s", ddg_shironet_url or "<none>")
+    if ddg_shironet_url and "prfid=" in ddg_shironet_url and "wrkid=" in ddg_shironet_url:
+        try:
+            payload = _fetch_shironet_lyrics_from_url(
+                ddg_shironet_url,
+                song=song,
+                artist=artist,
+                config_path=base_paths.config_path,
+            )
+            text = str(payload.get("lyrics", "")).strip()
+            if text:
+                LOGGER.info("Found lyrics via DDG shironet URL: %s", ddg_shironet_url)
+                return {
+                    "project_name": project_name,
+                    "lyrics_text": text,
+                    "lyrics_source_url": str(payload.get("source_url", "")).strip() or ddg_shironet_url,
+                    "lyrics_title": "",
+                    "source_query": song,
+                    "source_artist": artist,
+                }
+        except Exception as exc:
+            LOGGER.warning("DDG shironet URL fetch failed: %s", exc)
+
+    # Strategy 1b: Direct shironet search (fallback if DDG URL didn't yield lyrics)
+    LOGGER.info("Trying direct shironet search for: %s - %s", artist or "?", song)
+    shironet_result = _direct_search_shironet(song, artist)
+    if shironet_result.get("success") and shironet_result.get("lyrics_text", "").strip():
+        LOGGER.info("Found lyrics on shironet via direct search")
+        return {
+            "project_name": project_name,
+            "lyrics_text": str(shironet_result.get("lyrics_text", "")).strip(),
+            "lyrics_source_url": str(shironet_result.get("source_url", "")).strip(),
+            "lyrics_title": "",
+            "source_query": song,
+            "source_artist": artist,
+        }
+
+    # Strategy 2: Shirrim search
+    scored_results: list[tuple[int, dict[str, str]]] = []
+    queries = [
+        f"{song_query} {artist_filter}".strip(),
+        song_query,
+    ]
+    for query in queries:
+        if not query:
+            continue
+        LOGGER.info("Trying shirrim search with query: %s", query)
+        for result in _search_shirrim_results(query):
+            score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+            if score > 0:
+                scored_results.append((score, result))
+        if scored_results:
+            break
+
     if not scored_results:
         return base_payload
 
     scored_results.sort(key=lambda item: item[0], reverse=True)
     best_score, best_result = scored_results[0]
-    LOGGER.info("Best match: %s (Score: %d)", best_result["title"], best_score)
+    LOGGER.info("Best shirrim match: %s (Score: %d)", best_result["title"], best_score)
     if best_score < 40:
         LOGGER.info("Best score %d is below threshold (40)", best_score)
         return base_payload
@@ -1694,6 +1770,333 @@ def _fetch_shirrim_lyrics(shirrim_url: str) -> dict[str, str]:
     }
 
 
+# ── Multi-source lyrics fetching pipeline ──────────────────────────────
+
+
+def _parse_song_artist(project_name: str) -> tuple[str, str]:
+    parts = [p.strip() for p in project_name.split(" - ", 1)]
+    if len(parts) >= 2 and parts[0] and parts[1]:
+        return parts[0], parts[1]
+    return project_name, ""
+
+
+_HEBREW_TO_LATIN: dict[str, str] = {
+    "\u05d0": "a", "\u05d1": "b", "\u05d2": "g", "\u05d3": "d",
+    "\u05d4": "h", "\u05d5": "v", "\u05d6": "z", "\u05d7": "ch",
+    "\u05d8": "t", "\u05d9": "y", "\u05db": "k", "\u05da": "ch",
+    "\u05dc": "l", "\u05de": "m", "\u05dd": "m", "\u05e0": "n",
+    "\u05df": "n", "\u05e1": "s", "\u05e2": "a", "\u05e4": "f",
+    "\u05e3": "f", "\u05e6": "tz", "\u05e5": "tz", "\u05e7": "k",
+    "\u05e8": "r", "\u05e9": "sh", "\u05ea": "t",
+}
+
+
+def _transliterate_hebrew(text: str) -> str:
+    result = []
+    for ch in text:
+        result.append(_HEBREW_TO_LATIN.get(ch, ch))
+    slug = "".join(result).lower()
+    slug = re.sub(r"[^a-z]+", "-", slug)
+    slug = slug.strip("-")
+    return slug
+
+
+_CHORD_RE = re.compile(
+    r"^[\s]*(?:[A-G][#b]?(?:m|M|7|9|11|13|sus|dim|aug|add|[2-9])*[\s/]*)+[\s]*$"
+)
+
+
+def _has_chords_only(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    tokens = stripped.split()
+    chord_count = 0
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            continue
+        if _CHORD_RE.match(token):
+            chord_count += 1
+    return chord_count > 0 and chord_count == len(tokens)
+
+
+def _page_visible_text(soup: BeautifulSoup) -> str:
+    """Extract visible text from a parsed page, stripping scripts/styles/header/footer/nav/forms."""
+    for tag in soup.find_all(["script", "style", "noscript", "header", "footer", "nav", "form", "aside"]):
+        tag.decompose()
+    text = soup.get_text("\n", strip=True)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines)
+
+
+def _llm_extract_or_empty(page_text: str, song: str, artist: str, config_path: Any) -> str:
+    """Run the local LLM as a fallback to extract clean lyrics from raw page text."""
+    if not config_path or not page_text:
+        return ""
+    try:
+        return extract_lyrics_from_page(page_text, song, artist, config_path)
+    except Exception:
+        LOGGER.exception("LLM lyrics extraction failed")
+        return ""
+
+
+_LYRICS_FETCH_TIMEOUT = 5
+_LYRICS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "he-IL,he;q=0.9,en;q=0.8",
+}
+
+
+
+# ----- nagnu.co.il: removed — Qwik SPA, no server-side search -----
+
+
+def _fetch_shironet_lyrics_from_url(
+    url: str,
+    *,
+    song: str = "",
+    artist: str = "",
+    config_path: Any = None,
+) -> dict[str, str]:
+    """Fetch lyrics from a known shironet.mako.co.il URL (used when DDG discovers it)."""
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower().replace("www.", "")
+    if hostname != "shironet.mako.co.il":
+        raise ValueError("Not a shironet.mako.co.il URL")
+    try:
+        resp = requests.get(url, headers=_LYRICS_HEADERS, timeout=_LYRICS_FETCH_TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Failed to fetch shironet page: {exc}") from exc
+
+    soup = BeautifulSoup(resp.content, "html.parser")
+    lyrics_text = ""
+
+    for sel in (
+        'span.artist_lyrics_text',
+        'span[itemprop="Lyrics"]',
+    ):
+        container = soup.select_one(sel)
+        if container:
+            raw = container.get_text("\n", strip=False)
+            lines = raw.splitlines()
+            clean = [l for l in lines if l.strip() and not _has_chords_only(l)]
+            lyrics_text = "\n".join(clean).strip()
+            if lyrics_text and sum(1 for c in lyrics_text if ord(c) > 0x0590) > 10:
+                break
+            lyrics_text = ""
+
+    if not lyrics_text:
+        for tag in ("pre", "div", "span", "p"):
+            for el in soup.find_all(tag):
+                text = el.get_text("\n", strip=True)
+                heb_chars = sum(1 for c in text if ord(c) > 0x0590)
+                if heb_chars > 20 and len(text) > 50:
+                    lines = text.splitlines()
+                    clean = [l for l in lines if l.strip() and not _has_chords_only(l)]
+                    candidate = "\n".join(clean).strip()
+                    if len(candidate) > len(lyrics_text):
+                        lyrics_text = candidate
+
+    extraction_method = "selector"
+    if (not lyrics_text or sum(1 for c in lyrics_text if ord(c) > 0x0590) < 20) and config_path:
+        page_text = _page_visible_text(soup)
+        llm_text = _llm_extract_or_empty(page_text, song, artist, config_path)
+        if llm_text:
+            lyrics_text = llm_text
+            extraction_method = "llm"
+
+    if not lyrics_text or sum(1 for c in lyrics_text if ord(c) > 0x0590) < 20:
+        raise RuntimeError("Could not locate lyrics on shironet URL")
+
+    return {"lyrics": lyrics_text, "source_url": url, "extraction_method": extraction_method}
+
+
+def _direct_search_shironet(song: str, artist: str) -> dict[str, str]:
+    """Search shironet.mako.co.il for the song and return lyrics."""
+    search_url = "https://shironet.mako.co.il/searchSongs"
+    queries = []
+    if song and artist:
+        queries.append(f"{song} {artist}")
+    if song:
+        queries.append(song)
+    if artist and artist != song:
+        queries.append(artist)
+
+    song_normalized = _hebrew_only_text(song) or _normalize_lookup_text(song) or song
+    artist_normalized = _hebrew_only_text(artist) or _normalize_lookup_text(artist) or artist
+
+    seen_prfid_wrkid: set[tuple[str, str]] = set()
+    scored: list[tuple[int, str]] = []
+
+    for query in queries:
+        if not query.strip():
+            continue
+        try:
+            resp = requests.get(search_url, params={"q": query, "type": "lyrics"}, headers=_LYRICS_HEADERS, timeout=_LYRICS_FETCH_TIMEOUT)
+            resp.raise_for_status()
+        except requests.RequestException:
+            continue
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        for a in soup.find_all("a", class_="search_link_name_big", href=True):
+            href = a["href"]
+            if "type=lyrics" not in href or "wrkid" not in href:
+                continue
+            prfid_match = re.search(r'prfid=(\d+)', href)
+            wrkid_match = re.search(r'wrkid=(\d+)', href)
+            if not prfid_match or not wrkid_match:
+                continue
+            key = (prfid_match.group(1), wrkid_match.group(1))
+            if key in seen_prfid_wrkid:
+                continue
+            seen_prfid_wrkid.add(key)
+
+            song_title = a.get_text(strip=True)
+            # Find the sibling/parent artist link
+            artist_el = a.find_next("a", class_="search_link_name_big", href=True)
+            artist_name = artist_el.get_text(strip=True) if artist_el else ""
+
+            # Combine song + artist like "מאיה - שלום חנוך" for matching
+            combined_candidate = f"{song_title} {artist_name}".strip()
+            score = _normalized_song_match_score(combined_candidate, song_normalized, artist_normalized)
+            # If combined match is weak, also give partial credit for artist match alone
+            if score <= 0 and artist_normalized and artist_normalized in _normalize_lookup_text(artist_name).lower():
+                score = 10
+            if score > 0:
+                scored.append((score, f"https://shironet.mako.co.il{href}"))
+
+        if scored:
+            break
+
+    if not scored:
+        return {"source": "shironet.mako.co.il", "lyrics_text": "", "source_url": "", "success": False, "error": f"No lyrics found on shironet for: {song} {artist}".strip()}
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_url = scored[0][1]
+    try:
+        payload = _fetch_shironet_lyrics_from_url(best_url)
+        text = str(payload.get("lyrics", "")).strip()
+        if not text:
+            return {"source": "shironet.mako.co.il", "lyrics_text": "", "source_url": best_url, "success": False, "error": "Empty lyrics from shironet"}
+        return {"source": "shironet.mako.co.il", "lyrics_text": text, "source_url": str(payload.get("source_url", best_url)), "success": True, "error": ""}
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        return {"source": "shironet.mako.co.il", "lyrics_text": "", "source_url": best_url, "success": False, "error": str(exc)}
+
+
+# ----- DuckDuckGo-based lyrics URL discovery -----
+
+
+_DDG_PREFERRED_DOMAINS = ("shironet.mako.co.il", "shirrim.com")
+
+
+def _ddg_search_lyrics_url(song: str, artist: str, max_results: int = 16) -> list[dict[str, str]]:
+    """Use DuckDuckGo to find candidate lyrics pages.
+
+    Returns a list of {title, href, body} dicts. Never raises — returns []
+    on any error (missing package, rate limit, network failure) so callers
+    can fall back to direct URL construction.
+    """
+    base_query = " ".join(p for p in (str(song or "").strip(), str(artist or "").strip()) if p)
+    if not base_query:
+        return []
+
+    query = f'"{song}" "{artist}" מילים לשיר'
+
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        LOGGER.warning("ddgs package not installed; DDG discovery disabled")
+        return []
+
+    try:
+        with DDGS() as ddgs:
+            raw_results = list(ddgs.text(query, max_results=max_results, region="il-il"))
+    except Exception as exc:
+        LOGGER.warning("DuckDuckGo search failed: %s", exc)
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for r in raw_results:
+        if not isinstance(r, dict):
+            continue
+        href = str(r.get("href") or r.get("url") or "").strip()
+        if not href:
+            continue
+        normalized.append({
+            "title": str(r.get("title", "")).strip(),
+            "href": href,
+            "body": str(r.get("body") or r.get("snippet") or "").strip(),
+        })
+    return normalized
+
+
+def _ddg_pick_url_for_site(site: str, results: list[dict[str, str]]) -> str | None:
+    """Pick the first DDG result whose URL belongs to the target site.
+
+    Returns the URL string or None if no match found. Does not fall back
+    to other sites — that's the caller's job (per-site, not per-result).
+    """
+    if not results:
+        return None
+    for r in results:
+        if site in r["href"]:
+            return r["href"]
+    return None
+
+
+def _append_lyrics_log(project_id: str, entry: dict, base_paths: EditorPaths) -> None:
+    log_dir = _projects_root(base_paths) / project_id
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "lyrics_fetch_log.jsonl"
+    entry["timestamp"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    entry["project_id"] = project_id
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        LOGGER.warning("Failed to write lyrics fetch log: %s", exc)
+
+
+def _fetch_shirrim_lyrics_by_search(song: str, artist: str) -> dict[str, str]:
+    song_query = _hebrew_only_text(song) or _normalize_lookup_text(song) or song
+    artist_filter = _hebrew_only_text(artist) or _normalize_lookup_text(artist) or artist
+
+    scored: list[tuple[int, str]] = []
+
+    if artist:
+        for result in _search_shirrim_artist_page(artist, song):
+            score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+            if score > 0:
+                scored.append((score, result["url"]))
+
+    if not scored:
+        for query in [f"{song_query} {artist_filter}".strip(), song_query]:
+            if not query:
+                continue
+            for result in _search_shirrim_results(query):
+                score = _normalized_song_match_score(result["title"], song_query, artist_filter)
+                if score > 0:
+                    scored.append((score, result["url"]))
+            if scored:
+                break
+
+    if not scored:
+        return {"source": "shirrim.com", "lyrics_text": "", "source_url": "", "success": False, "error": f"No lyrics found on shirrim.com for: {song} {artist}".strip()}
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_url = scored[0][1]
+    try:
+        payload = _fetch_shirrim_lyrics(best_url)
+        text = str(payload.get("lyrics", "")).strip()
+        if not text:
+            return {"source": "shirrim.com", "lyrics_text": "", "source_url": best_url, "success": False, "error": "Empty lyrics returned"}
+        return {"source": "shirrim.com", "lyrics_text": text, "source_url": str(payload.get("source_url", best_url)), "success": True, "error": ""}
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        return {"source": "shirrim.com", "lyrics_text": "", "source_url": best_url, "success": False, "error": str(exc)}
+
+
 def _write_manual_project(
     paths: EditorPaths,
     audio_source: Path,
@@ -1760,6 +2163,8 @@ def _write_manual_project(
 
     state["artifacts"] = {
         "audio_wav": str(paths.audio_path),
+        "vocals_wav": str(paths.audio_path.with_name("vocals.wav")),
+        "no_vocals_wav": str(paths.audio_path.with_name("no_vocals.wav")),
     }
 
     _write_json_atomic(paths.editor_manifest_path, manifest)
@@ -2997,6 +3402,11 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             lyrics_source_url=lyrics_source_url,
         )
         _update_pipeline_stage(base_paths, initial_job, "lyrics_fetch", "done", "Lyrics fetched and project created")
+        set_pipeline_job(
+            current_stage_key="stem_separation",
+            current_stage_label="Stem separation",
+            updated_at=_timestamp(),
+        )
         _set_active_project_key(base_paths, project_key)
         
         return {
@@ -3162,26 +3572,16 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         except Exception:
             pass
             
-        # Now that we have the resolved project info, we can initialize the pipeline job
-        initial_job = _default_pipeline_job()
-        initial_job.update(
-            {
-                "job_id": job_id,
-                "status": "running",
-                "started_at": _timestamp(),
-                "updated_at": _timestamp(),
-                "project_id": project_key,
-                "project_name": resolved_project_name,
-            }
-        )
-        set_pipeline_job(**initial_job)
-        
-        _update_pipeline_stage(base_paths, initial_job, "download_convert", "done", f"Downloaded {cleaned_audio_path.name}")
+        # Update pipeline with resolved project info
+        job = _read_pipeline_job(base_paths)
+        set_pipeline_job(project_id=project_key, project_name=resolved_project_name)
+        job = _update_pipeline_stage(base_paths, job, "download_convert", "done", f"Downloaded {cleaned_audio_path.name}")
         
         # 2. Lyrics Fetch & Project Creation
         project_paths = _project_paths(base_paths, project_key)
         
-        _update_pipeline_stage(base_paths, initial_job, "lyrics_fetch", "running", "Fetching lyrics and creating project")
+        job = _read_pipeline_job(base_paths)
+        job = _update_pipeline_stage(base_paths, job, "lyrics_fetch", "running", "Fetching lyrics and creating project")
         state = _attach_audio_to_project(
             paths=project_paths,
             project_name=resolved_project_name,
@@ -3191,7 +3591,13 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             preferred_source_name=preferred_source_name,
             lyrics_source_url=str(discovered_details.get("lyrics_source_url", "")).strip(),
         )
-        _update_pipeline_stage(base_paths, initial_job, "lyrics_fetch", "done", "Lyrics fetched and project created")
+        job = _read_pipeline_job(base_paths)
+        job = _update_pipeline_stage(base_paths, job, "lyrics_fetch", "done", "Lyrics fetched and project created")
+        set_pipeline_job(
+            current_stage_key="stem_separation",
+            current_stage_label="Stem separation",
+            updated_at=_timestamp(),
+        )
         _set_active_project_key(base_paths, project_key)
         
         return {
@@ -3275,15 +3681,43 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
 
         job_id = uuid.uuid4().hex
         
-        try:
-            # Synchronously setup the project (Download, Lyrics, Normalization)
-            # This ensures waveform and lyrics are present immediately.
-            setup_info = _setup_youtube_project(raw_payload, job_id)
-        except Exception as exc:
-            return 500, {"ok": False, "job_id": job_id, "error": str(exc)}
+        # Create pipeline job immediately so frontend sees progress from the start
+        initial_job = _default_pipeline_job()
+        initial_job.update(
+            {
+                "job_id": job_id,
+                "status": "running",
+                "started_at": _timestamp(),
+                "updated_at": _timestamp(),
+                "project_id": "pending",
+                "project_name": "Downloading...",
+            }
+        )
+        set_pipeline_job(**initial_job)
+        _update_pipeline_stage(base_paths, initial_job, "download_convert", "running", "Downloading audio from YouTube...")
+
+        if app.testing:
+            try:
+                setup_info = _setup_youtube_project(raw_payload, job_id)
+                result = _run_youtube_import_job(raw_payload, job_id)
+                result.update(
+                    {
+                        "lyrics_source_url": setup_info.get("lyrics_source_url", ""),
+                        "lyrics_title": setup_info.get("lyrics_title", ""),
+                        "lyrics_found": setup_info.get("lyrics_found", False),
+                    }
+                )
+                return 200, result
+            except ValueError as exc:
+                return 400, {"error": str(exc), "job_id": job_id}
+            except RuntimeError as exc:
+                return 409, {"error": str(exc), "job_id": job_id}
+            except Exception as exc:
+                return 500, {"ok": False, "job_id": job_id, "error": str(exc)}
 
         def worker() -> None:
             try:
+                _setup_youtube_project(raw_payload, job_id)
                 _run_youtube_import_job(raw_payload, job_id)
             except Exception:
                 pass
@@ -3291,16 +3725,11 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
         
-        return 200, {
-            "ok": True, 
-            "job_id": job_id, 
-            "status": "running", 
-            "message": "Project created. Stems are processing in background.",
-            "project_id": setup_info["project_id"],
-            "project_name": setup_info["project_name"],
-            "lyrics_source_url": setup_info["lyrics_source_url"],
-            "lyrics_title": setup_info["lyrics_title"],
-            "lyrics_found": setup_info["lyrics_found"],
+        return 202, {
+            "ok": True,
+            "job_id": job_id,
+            "status": "running",
+            "message": "YouTube import started",
         }
 
 
@@ -3690,6 +4119,133 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
 
         return _json_response({"ok": True, **payload})
 
+    @app.post("/api/fetch_lyrics")
+    def api_fetch_lyrics() -> Response:
+        raw_payload = request.get_json(silent=True) or {}
+        if not isinstance(raw_payload, Mapping):
+            return _json_response({"error": "Invalid JSON payload"}, status=400)
+
+        project_name = str(raw_payload.get("project_name", "")).strip()
+        if not project_name:
+            return _json_response({"error": "project_name is required"}, status=400)
+
+        song, artist = _parse_song_artist(project_name)
+        if not song:
+            return _json_response({"error": "Could not parse song name from project title"}, status=400)
+
+        project_id = _active_project_key(base_paths) or "unknown"
+
+        # ----- One DuckDuckGo search covering all sites -----
+        ddg_results = _ddg_search_lyrics_url(song, artist, max_results=16)
+        ddg_log = {
+            "attempted": True,
+            "results_count": len(ddg_results),
+            "engine": "duckduckgo",
+        }
+        LOGGER.info(
+            "DDG search for '%s - %s' returned %d results",
+            song, artist, len(ddg_results),
+        )
+
+        # Per-site fetchers. Each closure tries DDG URL first, falls back to direct.
+        def _shirrim_fetcher(url=None):
+            if url:
+                payload = _fetch_shirrim_lyrics(url)
+                lyrics_text = str(payload.get("lyrics", "")).strip()
+                # Validate fetched song matches expected song
+                page_title = str(payload.get("title", "")).strip()
+                if lyrics_text and page_title:
+                    match_score = _normalized_song_match_score(page_title, song, artist)
+                    if match_score <= 0:
+                        return {
+                            "source": "shirrim.com",
+                            "lyrics_text": "",
+                            "source_url": str(payload.get("source_url", "") or url).strip(),
+                            "success": False,
+                            "error": "Song mismatch on shirrim page",
+                        }
+                return {
+                    "source": "shirrim.com",
+                    "lyrics_text": lyrics_text,
+                    "source_url": str(payload.get("source_url", "") or url).strip(),
+                    "success": bool(lyrics_text),
+                    "error": "" if lyrics_text else "Empty lyrics from shirrim URL",
+                }
+            return _fetch_shirrim_lyrics_by_search(song, artist)
+
+        def _shironet_fetcher(url=None):
+            # Only use DDG URL if it contains prfid/wrkid (specific song page).
+            # DDG often returns the generic search page — fall through to direct search.
+            if url and "prfid=" in url and "wrkid=" in url:
+                try:
+                    payload = _fetch_shironet_lyrics_from_url(
+                        url, song=song, artist=artist, config_path=base_paths.config_path,
+                    )
+                    return {
+                        "source": "shironet.mako.co.il",
+                        "lyrics_text": str(payload.get("lyrics", "")).strip(),
+                        "source_url": str(payload.get("source_url", "") or url).strip(),
+                        "success": True,
+                        "error": "",
+                        "extraction_method": payload.get("extraction_method", "selector"),
+                    }
+                except Exception as exc:
+                    return {
+                        "source": "shironet.mako.co.il",
+                        "lyrics_text": "",
+                        "source_url": url,
+                        "success": False,
+                        "error": str(exc),
+                        "extraction_method": "selector",
+                    }
+            return _direct_search_shironet(song, artist)
+
+        sources = [
+            ("shironet.mako.co.il", _shironet_fetcher),
+            ("shirrim.com", _shirrim_fetcher),
+        ]
+
+        results = []
+        for source_name, fetcher in sources:
+            # ----- Step 1: Try DDG-discovered URL for THIS site -----
+            ddg_url = _ddg_pick_url_for_site(source_name, ddg_results)
+
+            # ----- Step 2: Fetch (DDG URL or fall back to direct) -----
+            try:
+                if ddg_url:
+                    result = fetcher(url=ddg_url)
+                else:
+                    result = fetcher()
+            except Exception as exc:
+                result = {
+                    "source": source_name, "lyrics_text": "", "source_url": ddg_url or "",
+                    "success": False, "error": str(exc),
+                }
+
+            if not isinstance(result, dict):
+                result = {"source": source_name, "success": False, "error": "Invalid result type"}
+            result.setdefault("source", source_name)
+            result.setdefault("success", False)
+            result.setdefault("error", "")
+            result.setdefault("lyrics_text", "")
+            result.setdefault("source_url", "")
+            result.setdefault("extraction_method", "selector")
+            result["discovery_method"] = "ddg" if ddg_url else "direct"
+            result["ddg_url"] = ddg_url or ""
+            results.append(result)
+            _append_lyrics_log(project_id, result, base_paths)
+
+        fallback_artist = artist or song
+        fallback_q = requests.utils.quote(f"{song} {fallback_artist}".strip())
+        fallback_search_url = f"https://www.google.com/search?q={fallback_q}+%D7%9E%D7%99%D7%9C%D7%99%D7%9D"
+
+        return _json_response({
+            "results": results,
+            "fallback_search_url": fallback_search_url,
+            "parsed": {"song": song, "artist": artist},
+            "ddg": ddg_log,
+        })
+
     @app.post("/api/import")
     def api_import() -> Response:
         audio_file = request.files.get("audio_file")
@@ -3872,13 +4428,93 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             return _json_response({"error": f"Graph UI file not found: {graph_ui_path}"}, status=404)
         return send_file(graph_ui_path)
 
-    @app.get("/api/graph/data")
-    def api_graph_data() -> Response:
+    @app.post("/api/lyrics/search_ddg")
+    def api_lyrics_search_ddg() -> Response:
+        payload = request.get_json(silent=True) or {}
+        query = str(payload.get("query", "")).strip()
+        if not query:
+            return _json_response({"error": "query is required"}, status=400)
+        parsed_song, parsed_artist = _parse_song_artist(query)
+        q = parsed_song or query
+        a = parsed_artist or ""
+        results = _ddg_search_lyrics_url(q, a)
+        annotated = []
+        for r in results:
+            domain = ""
+            try:
+                domain = urlparse(r["href"]).hostname or ""
+            except Exception:
+                pass
+            annotated.append({**r, "domain": domain})
+        return _json_response({"results": annotated})
+
+    @app.post("/api/lyrics/fetch_url")
+    def api_lyrics_fetch_url() -> Response:
+        payload = request.get_json(silent=True) or {}
+        url = str(payload.get("url", "")).strip()
+        song = str(payload.get("song", "")).strip()
+        artist = str(payload.get("artist", "")).strip()
+        if not url:
+            return _json_response({"error": "url is required"}, status=400)
+        hostname = urlparse(url).hostname or ""
+        hostname_clean = hostname.lower().replace("www.", "")
         try:
-            graph_data = _parse_codebase_dependency_graph(base_paths.root_dir)
-            return _json_response(graph_data)
-        except Exception as exc:
-            return _json_response({"error": str(exc)}, status=500)
+            if hostname_clean in ("shirrim.com",):
+                p = _fetch_shirrim_lyrics(url)
+                return _json_response({
+                    "lyrics_text": p.get("lyrics", ""), "source": "shirrim.com",
+                    "source_url": p.get("source_url", url), "success": bool(p.get("lyrics")),
+                    "error": "", "extraction_method": "selector",
+                })
+            elif hostname_clean in ("shironet.mako.co.il",):
+                p = _fetch_shironet_lyrics_from_url(url, song=song, artist=artist, config_path=base_paths.config_path)
+                return _json_response({
+                    "lyrics_text": p.get("lyrics", ""), "source": "shironet.mako.co.il",
+                    "source_url": p.get("source_url", url), "success": bool(p.get("lyrics")),
+                    "error": "", "extraction_method": p.get("extraction_method", "selector"),
+                })
+            else:
+                return _json_response({"error": f"Unsupported domain: {hostname}"}, status=400)
+        except (ValueError, RuntimeError, requests.RequestException) as exc:
+            return _json_response({"error": str(exc)}, status=400)
+
+    @app.post("/api/lyrics/llm_extract")
+    def api_lyrics_llm_extract() -> Response:
+        payload = request.get_json(silent=True) or {}
+        url = str(payload.get("url", "")).strip()
+        song = str(payload.get("song", "")).strip()
+        artist = str(payload.get("artist", "")).strip()
+        if not url:
+            return _json_response({"error": "url is required"}, status=400)
+        hostname = urlparse(url).hostname or ""
+        hostname_clean = hostname.lower().replace("www.", "")
+        fetchers = {
+            "shironet.mako.co.il": _fetch_shironet_lyrics_from_url,
+            "shirrim.com": _fetch_shirrim_lyrics,
+        }
+        fetcher = fetchers.get(hostname_clean)
+        if fetcher:
+            fetcher_func = fetcher
+            try:
+                p = fetcher_func(url, song=song, artist=artist, config_path=base_paths.config_path) if hostname_clean != "shirrim.com" else fetcher_func(url)
+                text = str(p.get("lyrics", "")).strip()
+                if text and sum(1 for c in text if ord(c) > 0x0590) >= 20:
+                    return _json_response({"lyrics_text": text, "extraction_method": "selector"})
+            except Exception:
+                pass
+        try:
+            resp = requests.get(url, headers=_LYRICS_HEADERS, timeout=_LYRICS_FETCH_TIMEOUT)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            return _json_response({"error": str(exc)}, status=400)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        page_text = _page_visible_text(soup)
+        if not page_text.strip():
+            return _json_response({"error": "Could not extract any text from the page"}, status=400)
+        llm_text = _llm_extract_or_empty(page_text, song, artist, base_paths.config_path)
+        if not llm_text:
+            return _json_response({"error": "LLM could not extract lyrics from this page"}, status=404)
+        return _json_response({"lyrics_text": llm_text, "extraction_method": "llm"})
 
     return app
 

@@ -1,0 +1,1786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codebase Dependency Graph Viewer</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #08090d;
+            --panel-bg: rgba(15, 18, 28, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --accent-cyan: #00f2fe;
+            --accent-purple: #b927fc;
+            --accent-gold: #f5b041;
+            --accent-green: #2ecc71;
+            --accent-magenta: #ff007f;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --transition-speed: 0.3s;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        h1, h2, h3, h4 {
+            font-family: 'Outfit', sans-serif;
+        }
+
+        /* Glassmorphic Layout Containers */
+        .app-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #graph-canvas {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            cursor: grab;
+        }
+
+        #graph-canvas:active {
+            cursor: grabbing;
+        }
+
+        /* UI Panels & Overlays */
+        .glass-panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            transition: all var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Top Header Navigation */
+        .header-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            height: 70px;
+            z-index: 10;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            pointer-events: auto;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.4);
+        }
+
+        .logo-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(to right, #ffffff, #dcdde1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-subtitle {
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-left: 4px;
+        }
+
+        /* Search Section */
+        .search-container {
+            position: relative;
+            width: 320px;
+        }
+
+        .search-input-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        .search-input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 10px 16px 10px 40px;
+            color: white;
+            font-size: 0.875rem;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-cyan);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            width: 16px;
+            height: 16px;
+        }
+
+        .search-results-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            right: 0;
+            max-height: 250px;
+            overflow-y: auto;
+            background: rgba(15, 18, 28, 0.95);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .search-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: background 0.15s;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .search-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .search-item-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .search-item-path {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--text-secondary);
+        }
+
+        .btn-accent {
+            background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(185, 39, 252, 0.2));
+            border-color: rgba(0, 242, 254, 0.4);
+        }
+
+        .btn-accent:hover {
+            background: linear-gradient(135deg, rgba(0, 242, 254, 0.3), rgba(185, 39, 252, 0.3));
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+        }
+
+        /* Sidebar Panels */
+        .sidebar {
+            position: absolute;
+            top: 100px;
+            bottom: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            pointer-events: auto;
+        }
+
+        .left-sidebar {
+            left: 20px;
+            width: 320px;
+            gap: 20px;
+        }
+
+        .right-sidebar {
+            right: 20px;
+            width: 380px;
+            transform: translateX(calc(100% + 40px));
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .right-sidebar.active {
+            transform: translateX(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Sub-sections within sidebars */
+        .sidebar-section {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex: 1;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 10px;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        /* Customize Scrollbars */
+        .section-scroll::-webkit-scrollbar,
+        .search-results-dropdown::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .section-scroll::-webkit-scrollbar-track,
+        .search-results-dropdown::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .section-scroll::-webkit-scrollbar-thumb,
+        .search-results-dropdown::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .section-scroll::-webkit-scrollbar-thumb:hover,
+        .search-results-dropdown::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Statistics Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .stat-val {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .stat-lbl {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        /* Controls Panel */
+        .control-group {
+            margin-bottom: 14px;
+        }
+
+        .control-label-wrapper {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .control-label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .control-value {
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            font-family: 'Fira Code', monospace;
+        }
+
+        .control-slider {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            outline: none;
+            border-radius: 2px;
+            -webkit-appearance: none;
+            cursor: pointer;
+        }
+
+        .control-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            box-shadow: 0 0 8px var(--accent-cyan);
+            transition: transform 0.1s;
+        }
+
+        .control-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Toggle switches */
+        .toggle-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .toggle-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 34px;
+            height: 20px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255,255,255,0.1);
+            transition: .3s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: rgba(0, 242, 254, 0.4);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(14px);
+            background-color: var(--accent-cyan);
+            box-shadow: 0 0 5px var(--accent-cyan);
+        }
+
+        /* Legend Panel */
+        .legend-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        /* Selected Node Detail Panel */
+        .detail-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .detail-icon-box {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .detail-title-wrapper {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .detail-filename {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: white;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .detail-path {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            word-break: break-all;
+            margin-top: 2px;
+        }
+
+        .meta-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .meta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.04);
+        }
+
+        .meta-lbl {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .meta-val {
+            color: white;
+            font-family: 'Fira Code', monospace;
+            font-weight: 500;
+        }
+
+        .sidebar-btn-group {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        /* Detail lists */
+        .list-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent-cyan);
+            margin: 16px 0 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .list-box {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.04);
+            border-radius: 10px;
+            padding: 12px;
+            max-height: 180px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .list-box::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .list-box::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .detail-item-pill {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s;
+        }
+
+        .detail-item-pill:hover {
+            background: rgba(255,255,255,0.06);
+            color: white;
+            border-color: rgba(255,255,255,0.1);
+        }
+
+        .detail-item-arrow {
+            color: var(--accent-cyan);
+            width: 12px;
+            height: 12px;
+        }
+
+        /* D3 Canvas styling nodes & links */
+        .node {
+            cursor: pointer;
+            stroke-width: 1.5px;
+            transition: stroke-width 0.15s, opacity 0.2s;
+        }
+
+        .node:hover {
+            stroke-width: 3px;
+        }
+
+        .node-label {
+            font-size: 10px;
+            font-weight: 500;
+            pointer-events: none;
+            user-select: none;
+            fill: #d1d5db;
+            text-anchor: middle;
+            transition: font-size 0.15s, fill 0.15s;
+        }
+
+        /* Curved flow links styling */
+        .link {
+            fill: none;
+            stroke-opacity: 0.35;
+            transition: stroke-opacity 0.2s, stroke-width 0.2s;
+        }
+
+        .link-flow {
+            fill: none;
+            stroke-dasharray: 8, 12;
+            animation: dash 3s linear infinite;
+            stroke-opacity: 0.8;
+            pointer-events: none;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -40;
+            }
+        }
+
+        /* SVG Glow filters definition */
+        .glow {
+            filter: url(#neon-glow);
+        }
+
+        /* Pulse concentric circles for highlight target */
+        .target-pulse {
+            fill: none;
+            stroke: var(--accent-cyan);
+            stroke-width: 2px;
+            pointer-events: none;
+            animation: target-ring 1.8s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+        }
+
+        @keyframes target-ring {
+            0% {
+                r: 10px;
+                opacity: 1;
+            }
+            100% {
+                r: 50px;
+                opacity: 0;
+            }
+        }
+
+        /* Loading Screen Overlay */
+        .loader-overlay {
+            position: absolute;
+            inset: 0;
+            background: var(--bg-color);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.5s ease-out, visibility 0.5s ease-out;
+        }
+
+        .loader-overlay.fade-out {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(0, 242, 254, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent-cyan);
+            border-bottom-color: var(--accent-purple);
+            animation: spin 1.2s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.2);
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loader-text {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            letter-spacing: 1px;
+            color: white;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div class="loader-overlay" id="loading-screen">
+        <div class="spinner"></div>
+        <div class="loader-text">Analyzing Codebase AST Structure...</div>
+    </div>
+
+    <div class="app-container">
+        <!-- D3 Canvas -->
+        <svg id="graph-canvas">
+            <defs>
+                <!-- Neon glow drop shadow filter -->
+                <filter id="neon-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                </filter>
+                
+                <!-- Markers for links direction -->
+                <marker id="arrow-import" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M0,-4L9,0L0,4" fill="var(--accent-purple)" />
+                </marker>
+                <marker id="arrow-call" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M0,-3L7,0L0,3" fill="var(--accent-cyan)" />
+                </marker>
+                <marker id="arrow-structural" viewBox="0 -5 10 10" refX="18" refY="0" markerWidth="5" markerHeight="5" orient="auto">
+                    <path d="M0,-3L7,0L0,3" fill="rgba(255, 255, 255, 0.4)" />
+                </marker>
+            </defs>
+            <g id="canvas-group">
+                <!-- Group ordering controls layering (links behind nodes) -->
+                <g id="links-group"></g>
+                <g id="nodes-group"></g>
+            </g>
+        </svg>
+
+        <!-- Header Panel -->
+        <header class="header-panel glass-panel">
+            <div class="logo-container">
+                <div class="logo-icon">
+                    <i data-lucide="network"></i>
+                </div>
+                <div>
+                    <div style="display: flex; align-items: baseline;">
+                        <span class="logo-title">Antigravity</span>
+                        <span class="logo-subtitle">Graph</span>
+                    </div>
+                    <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 500;">Interactive Codebase Visualizer</span>
+                </div>
+            </div>
+
+            <!-- Search Area -->
+            <div class="search-container">
+                <div class="search-input-wrapper">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" class="search-input" id="search-box" placeholder="Search files, classes, methods..." autocomplete="off">
+                </div>
+                <div class="search-results-dropdown" id="search-dropdown"></div>
+            </div>
+
+            <div class="header-actions">
+                <button class="btn btn-accent" id="reset-forces-btn">
+                    <i data-lucide="refresh-cw"></i> Reset Physics
+                </button>
+                <button class="btn" id="reparse-btn">
+                    <i data-lucide="git-pull-request"></i> Reload Codebase
+                </button>
+            </div>
+        </header>
+
+        <!-- Left Sidebar: Statistics & Controls -->
+        <aside class="sidebar left-sidebar">
+            <!-- Stats Section -->
+            <div class="glass-panel sidebar-section" style="flex: 0 0 auto;">
+                <div class="section-header">
+                    <div class="section-title">
+                        <i data-lucide="bar-chart-2" style="color: var(--accent-cyan); width: 18px; height: 18px;"></i>
+                        Repository Stats
+                    </div>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-val" id="stat-files">-</span>
+                        <span class="stat-lbl">Files</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-val" id="stat-loc">-</span>
+                        <span class="stat-lbl">Total LOC</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-val" id="stat-classes">-</span>
+                        <span class="stat-lbl">Classes</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-val" id="stat-links">-</span>
+                        <span class="stat-lbl">Graph Connections</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters & Physics Section -->
+            <div class="glass-panel sidebar-section">
+                <div class="section-header">
+                    <div class="section-title">
+                        <i data-lucide="sliders" style="color: var(--accent-purple); width: 18px; height: 18px;"></i>
+                        Controls & Filters
+                    </div>
+                </div>
+                <div class="section-scroll">
+                    <!-- Filters -->
+                    <div style="margin-bottom: 20px;">
+                        <h4 style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;">File Type Filters</h4>
+                        <div class="toggle-item">
+                            <span class="toggle-text">Show Python Files (.py)</span>
+                            <label class="switch">
+                                <input type="checkbox" id="filter-py" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-item">
+                            <span class="toggle-text">Show UIs & Templates (.html)</span>
+                            <label class="switch">
+                                <input type="checkbox" id="filter-html" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-item">
+                            <span class="toggle-text">Show Configs & JSON</span>
+                            <label class="switch">
+                                <input type="checkbox" id="filter-json" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-item">
+                            <span class="toggle-text">Show Tests folder</span>
+                            <label class="switch">
+                                <input type="checkbox" id="filter-tests" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Force Physics Parameters -->
+                    <div>
+                        <h4 style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Physics Tuning</h4>
+                        <div class="control-group">
+                            <div class="control-label-wrapper">
+                                <span class="control-label">Node Gravity</span>
+                                <span class="control-value" id="val-gravity">-250</span>
+                            </div>
+                            <input type="range" class="control-slider" id="slider-gravity" min="-600" max="-50" value="-250">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label-wrapper">
+                                <span class="control-label">Link Distance</span>
+                                <span class="control-value" id="val-distance">120</span>
+                            </div>
+                            <input type="range" class="control-slider" id="slider-distance" min="40" max="300" value="120">
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label-wrapper">
+                                <span class="control-label">Collision Spacing</span>
+                                <span class="control-value" id="val-collision">28</span>
+                            </div>
+                            <input type="range" class="control-slider" id="slider-collision" min="10" max="80" value="28">
+                        </div>
+                    </div>
+
+                    <!-- Color Legend -->
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.06);">
+                        <h4 style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">Legend</h4>
+                        <div class="legend-list">
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: var(--accent-gold);"></div>
+                                <span>Entrypoints & Root files</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: var(--accent-cyan);"></div>
+                                <span>Modules directory</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: var(--accent-green);"></div>
+                                <span>Tests folder</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: var(--accent-magenta);"></div>
+                                <span>Static / UIs (.html, .css)</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: var(--text-muted);"></div>
+                                <span>Other / Configs (.json, .yaml)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Right Sidebar: Interactive File Details -->
+        <aside class="sidebar right-sidebar glass-panel" id="detail-sidebar">
+            <div class="sidebar-section">
+                <!-- Close Button -->
+                <div class="section-header">
+                    <div class="section-title">
+                        <i data-lucide="info" style="color: var(--accent-cyan); width: 18px; height: 18px;"></i>
+                        Node Metadata
+                    </div>
+                    <button class="btn" style="padding: 4px; border: none; background: transparent;" id="close-sidebar-btn">
+                        <i data-lucide="x" style="width: 20px; height: 20px;"></i>
+                    </button>
+                </div>
+
+                <div class="section-scroll">
+                    <!-- File basic info -->
+                    <div class="detail-header">
+                        <div class="detail-icon-box" id="detail-icon-bg">
+                            <i data-lucide="file-text" id="detail-icon-type" style="width: 22px; height: 22px;"></i>
+                        </div>
+                        <div class="detail-title-wrapper">
+                            <div class="detail-filename" id="detail-name">-</div>
+                            <div class="detail-path" id="detail-path">-</div>
+                        </div>
+                    </div>
+
+                    <!-- File Metrics -->
+                    <div class="meta-list">
+                        <div class="meta-row">
+                            <span class="meta-lbl">Type</span>
+                            <span class="meta-val" id="meta-type" style="text-transform: uppercase;">-</span>
+                        </div>
+                        <div class="meta-row" id="meta-row-loc">
+                            <span class="meta-lbl">Lines of Code (LOC)</span>
+                            <span class="meta-val" id="meta-loc">-</span>
+                        </div>
+                        <div class="meta-row">
+                            <span class="meta-lbl">File Size</span>
+                            <span class="meta-val" id="meta-size">-</span>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-btn-group">
+                        <button class="btn btn-accent" id="highlight-tree-btn">
+                            <i data-lucide="eye"></i> Focus Dependency Subtree
+                        </button>
+                    </div>
+
+                    <!-- Dynamic Details Tabs/Lists -->
+                    <div id="python-specific-details">
+                        <!-- Classes -->
+                        <div>
+                            <div class="list-title">
+                                <i data-lucide="box" style="width: 14px; height: 14px;"></i>
+                                Classes (<span id="count-classes">0</span>)
+                            </div>
+                            <div class="list-box" id="list-classes"></div>
+                        </div>
+
+                        <!-- Top-level functions -->
+                        <div>
+                            <div class="list-title">
+                                <i data-lucide="code" style="width: 14px; height: 14px;"></i>
+                                Functions & APIs (<span id="count-functions">0</span>)
+                            </div>
+                            <div class="list-box" id="list-functions"></div>
+                        </div>
+                    </div>
+
+                    <!-- Direct Dependencies (Imports) -->
+                    <div>
+                        <div class="list-title" style="color: var(--accent-purple);">
+                            <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+                            Dependencies / Imports (<span id="count-deps">0</span>)
+                        </div>
+                        <div class="list-box" id="list-dependencies"></div>
+                    </div>
+
+                    <!-- Direct Dependents (Imported by) -->
+                    <div>
+                        <div class="list-title" style="color: var(--accent-green);">
+                            <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i>
+                            Dependents / Used By (<span id="count-dependents">0</span>)
+                        </div>
+                        <div class="list-box" id="list-dependents"></div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Main JS Application Logic -->
+    <script>
+        // Global variables
+        let rawGraphData = null;
+        let filteredNodes = [];
+        let filteredLinks = [];
+        
+        let d3Nodes = [];
+        let d3Links = [];
+        
+        let expandedNodesMap = new Map(); // fileNode.id -> Set of structural sub-nodes currently added
+        
+        let selectedNode = null;
+        let hoveredNode = null;
+        
+        // Physics configurations
+        let simulation = null;
+        const svg = d3.select("#graph-canvas");
+        const canvasGroup = d3.select("#canvas-group");
+        const linksGroup = d3.select("#links-group");
+        const nodesGroup = d3.select("#nodes-group");
+        
+        // Dimensions
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+
+        // Initialize lucide icons
+        lucide.createIcons();
+
+        // Color coding logic based on directory group
+        function getNodeColor(d) {
+            if (d.type === 'sub-class') return "#b927fc";
+            if (d.type === 'sub-function') return "#00f2fe";
+            
+            if (d.group === 'tests') return "var(--accent-green)";
+            if (d.group === 'modules') return "var(--accent-cyan)";
+            if (d.group === 'root') return "var(--accent-gold)";
+            if (d.type === 'html' || d.type === 'css') return "var(--accent-magenta)";
+            return "var(--text-muted)";
+        }
+
+        function getNodeSize(d) {
+            if (d.type === 'sub-class') return 7;
+            if (d.type === 'sub-function') return 6;
+            
+            // Scaled based on LOC
+            if (d.type === 'python') {
+                return 9 + Math.min(d.loc / 80, 15);
+            }
+            return 8;
+        }
+
+        // Fetch codebase graph data
+        async function fetchGraphData() {
+            try {
+                d3.select("#loading-screen").classed("fade-out", false);
+                const res = await fetch("/api/graph/data");
+                rawGraphData = await res.json();
+                
+                // Set repository wide statistics
+                document.getElementById("stat-files").innerText = rawGraphData.nodes.length;
+                
+                let totalLoc = 0;
+                let totalClasses = 0;
+                rawGraphData.nodes.forEach(n => {
+                    totalLoc += n.loc || 0;
+                    totalClasses += (n.classes || []).length;
+                });
+                
+                document.getElementById("stat-loc").innerText = totalLoc.toLocaleString();
+                document.getElementById("stat-classes").innerText = totalClasses;
+                document.getElementById("stat-links").innerText = rawGraphData.links.length;
+
+                processDataAndDraw();
+                
+                // Hide loading screen
+                setTimeout(() => {
+                    d3.select("#loading-screen").classed("fade-out", true);
+                }, 500);
+                
+            } catch (err) {
+                console.error("Failed to load codebase graph:", err);
+                document.querySelector("#loading-screen .loader-text").innerText = "Error analyzing codebase. Make sure Flask server is active.";
+            }
+        }
+
+        // Formats file sizes nicely
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Filters data based on sidebar options
+        function processDataAndDraw() {
+            if (!rawGraphData) return;
+
+            const filterPy = document.getElementById("filter-py").checked;
+            const filterHtml = document.getElementById("filter-html").checked;
+            const filterJson = document.getElementById("filter-json").checked;
+            const filterTests = document.getElementById("filter-tests").checked;
+
+            // Filter nodes
+            filteredNodes = rawGraphData.nodes.filter(n => {
+                if (n.group === 'tests' && !filterTests) return false;
+                if (n.type === 'python' && !filterPy) return false;
+                if (n.type === 'html' && !filterHtml) return false;
+                if (n.type === 'json' || n.type === 'yaml') {
+                    if (!filterJson) return false;
+                }
+                return true;
+            });
+
+            const nodeIds = new Set(filteredNodes.map(n => n.id));
+
+            // Filter links where both source and target exist in active list
+            filteredLinks = rawGraphData.links.filter(l => {
+                const src = typeof l.source === 'object' ? l.source.id : l.source;
+                const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+                return nodeIds.has(src) && nodeIds.has(tgt);
+            });
+
+            // Initialize d3 structures keeping old coordinates if possible
+            const oldNodesMap = new Map(d3Nodes.map(n => [n.id, n]));
+            
+            d3Nodes = filteredNodes.map(n => {
+                const old = oldNodesMap.get(n.id);
+                return {
+                    ...n,
+                    x: old ? old.x : width / 2 + (Math.random() - 0.5) * 200,
+                    y: old ? old.y : height / 2 + (Math.random() - 0.5) * 200,
+                    vx: old ? old.vx : 0,
+                    vy: old ? old.vy : 0
+                };
+            });
+
+            // Re-map links to node references
+            const nodesById = new Map(d3Nodes.map(n => [n.id, n]));
+            d3Links = filteredLinks.map(l => {
+                const src = typeof l.source === 'object' ? l.source.id : l.source;
+                const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+                return {
+                    source: nodesById.get(src),
+                    target: nodesById.get(tgt),
+                    type: l.type,
+                    detail: l.detail
+                };
+            }).filter(l => l.source && l.target);
+
+            // Re-apply sub-nodes for already expanded nodes
+            expandedNodesMap.forEach((subSet, parentId) => {
+                const parentNode = nodesById.get(parentId);
+                if (parentNode) {
+                    // Re-add sub-nodes to current array
+                    subSet.forEach(sub => {
+                        sub.x = parentNode.x + (Math.random() - 0.5) * 40;
+                        sub.y = parentNode.y + (Math.random() - 0.5) * 40;
+                        d3Nodes.push(sub);
+                        
+                        d3Links.push({
+                            source: parentNode,
+                            target: sub,
+                            type: 'structural'
+                        });
+                    });
+                } else {
+                    expandedNodesMap.delete(parentId);
+                }
+            });
+
+            updateSimulation();
+        }
+
+        // Initialize and Update D3 Force Simulation
+        function updateSimulation() {
+            if (simulation) simulation.stop();
+
+            const gravityStrength = parseInt(document.getElementById("slider-gravity").value);
+            const linkDistance = parseInt(document.getElementById("slider-distance").value);
+            const collisionSpacing = parseInt(document.getElementById("slider-collision").value);
+
+            simulation = d3.forceSimulation(d3Nodes)
+                .force("link", d3.forceLink(d3Links).id(d => d.id).distance(d => {
+                    if (d.type === 'structural') return 30; // structural links are compact
+                    return linkDistance;
+                }).strength(0.8))
+                .force("charge", d3.forceManyBody().strength(d => {
+                    if (d.type === 'sub-class' || d.type === 'sub-function') return -30;
+                    return gravityStrength;
+                }))
+                .force("collide", d3.forceCollide().radius(d => getNodeSize(d) + collisionSpacing))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .on("tick", ticked);
+
+            drawGraph();
+            setupSearchAutocomplete();
+        }
+
+        // Render Graph elements (Links, Nodes)
+        function drawGraph() {
+            // 1. Draw Links
+            const linkBind = linksGroup.selectAll("g.link-wrapper")
+                .data(d3Links, d => `${d.source.id}->${d.target.id}:${d.type}`);
+
+            linkBind.exit().remove();
+
+            const linkEnter = linkBind.enter().append("g").attr("class", "link-wrapper");
+
+            // Base connection path
+            linkEnter.append("path")
+                .attr("class", "link")
+                .attr("stroke", d => {
+                    if (d.type === 'import') return "var(--accent-purple)";
+                    if (d.type === 'call') return "var(--accent-cyan)";
+                    return "rgba(255, 255, 255, 0.2)";
+                })
+                .attr("stroke-width", d => d.type === 'structural' ? 1 : 1.5)
+                .attr("stroke-dasharray", d => d.type === 'call' ? "5, 4" : (d.type === 'structural' ? "3, 3" : null))
+                .attr("marker-end", d => `url(#arrow-${d.type})`);
+
+            // Animated flow overlay
+            linkEnter.filter(d => d.type !== 'structural').append("path")
+                .attr("class", "link-flow")
+                .attr("stroke", d => d.type === 'import' ? "var(--accent-purple)" : "var(--accent-cyan)")
+                .attr("stroke-width", 2);
+
+            const allLinks = linksGroup.selectAll("g.link-wrapper");
+
+            // 2. Draw Nodes
+            const nodeBind = nodesGroup.selectAll("g.node-element")
+                .data(d3Nodes, d => d.id);
+
+            nodeBind.exit().remove();
+
+            const nodeEnter = nodeBind.enter().append("g")
+                .attr("class", "node-element")
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended))
+                .on("click", handleNodeClick)
+                .on("dblclick", handleNodeDblClick)
+                .on("mouseover", handleNodeMouseOver)
+                .on("mouseout", handleNodeMouseOut);
+
+            // Glowing concentric target ring (only present if searched/focused)
+            nodeEnter.append("circle")
+                .attr("class", "target-pulse")
+                .style("display", "none");
+
+            // Core node bubble
+            nodeEnter.append("circle")
+                .attr("class", "node")
+                .attr("r", getNodeSize)
+                .attr("fill", getNodeColor)
+                .attr("stroke", "#ffffff")
+                .attr("stroke-opacity", 0.3)
+                .attr("filter", d => d.type !== 'sub-class' && d.type !== 'sub-function' ? "url(#neon-glow)" : null);
+
+            // Labels
+            nodeEnter.append("text")
+                .attr("class", "node-label")
+                .attr("dy", d => getNodeSize(d) + 12)
+                .text(d => d.name)
+                .style("font-size", d => d.type === 'sub-class' || d.type === 'sub-function' ? "8px" : "10px")
+                .style("fill", d => d.type === 'sub-class' || d.type === 'sub-function' ? "var(--text-secondary)" : "#e5e7eb");
+
+            const allNodes = nodesGroup.selectAll("g.node-element");
+
+            // Apply opacity filters based on selection/hover state
+            updateGraphVisibilities();
+        }
+
+        // Ticked handler to update coordinates
+        function ticked() {
+            // Draw smooth curved paths using quadratic bezier curves
+            linksGroup.selectAll("g.link-wrapper path").attr("d", d => {
+                const x1 = d.source.x;
+                const y1 = d.source.y;
+                const x2 = d.target.x;
+                const y2 = d.target.y;
+                
+                if (d.type === 'structural') {
+                    // Straight lines for nested sub-structures
+                    return `M${x1},${y1}L${x2},${y2}`;
+                }
+
+                // Curved bezier for nice complex connections
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const dr = Math.sqrt(dx * dx + dy * dy) * 1.3; // curvature amount
+                
+                return `M${x1},${y1}A${dr},${dr} 0 0,1 ${x2},${y2}`;
+            });
+
+            // Update nodes positions
+            nodesGroup.selectAll("g.node-element").attr("transform", d => `translate(${d.x},${d.y})`);
+        }
+
+        // D3 Drag Event handlers
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        // Double Click to Expand/Collapse Classes & Functions
+        function handleNodeDblClick(event, d) {
+            event.stopPropagation();
+            if (d.type !== 'python') return; // Only expandable for Python files
+
+            const isExpanded = expandedNodesMap.has(d.id);
+
+            if (isExpanded) {
+                // Collapse sub-nodes
+                expandedNodesMap.delete(d.id);
+            } else {
+                // Expand sub-nodes
+                const subNodesSet = new Set();
+                
+                // Add classes as sub-nodes
+                (d.classes || []).forEach(cls => {
+                    subNodesSet.add({
+                        id: `${d.id}::class::${cls.name}`,
+                        name: cls.name,
+                        type: 'sub-class',
+                        methods: cls.methods,
+                        group: d.group,
+                        path: `${d.path} > class ${cls.name}`
+                    });
+                });
+
+                // Add functions as sub-nodes
+                (d.functions || []).forEach(func => {
+                    subNodesSet.add({
+                        id: `${d.id}::func::${func}`,
+                        name: `${func}()`,
+                        type: 'sub-function',
+                        group: d.group,
+                        path: `${d.path} > ${func}()`
+                    });
+                });
+
+                expandedNodesMap.set(d.id, subNodesSet);
+            }
+
+            processDataAndDraw();
+        }
+
+        // Mouse over Node (Glow direct relationships)
+        function handleNodeMouseOver(event, d) {
+            hoveredNode = d;
+            updateGraphVisibilities();
+        }
+
+        function handleNodeMouseOut() {
+            hoveredNode = null;
+            updateGraphVisibilities();
+        }
+
+        // Check if an node is connected in direct incoming or outgoing imports/calls
+        function isConnected(a, b) {
+            if (a.id === b.id) return true;
+            return d3Links.some(l => {
+                if (l.type === 'structural') return false;
+                const srcId = l.source.id;
+                const tgtId = l.target.id;
+                return (srcId === a.id && tgtId === b.id) || (srcId === b.id && tgtId === a.id);
+            });
+        }
+
+        // Handles node visibility highlighting based on hover/select state
+        function updateGraphVisibilities() {
+            const activeNode = hoveredNode || selectedNode;
+
+            if (activeNode) {
+                // Highlight active node & its direct connections
+                nodesGroup.selectAll("g.node-element")
+                    .style("opacity", d => isConnected(activeNode, d) ? 1.0 : 0.15)
+                    .select("circle.node")
+                    .attr("stroke-opacity", d => d.id === activeNode.id ? 1.0 : 0.3)
+                    .attr("stroke-width", d => d.id === activeNode.id ? 2.5 : 1.5)
+                    .attr("stroke", d => d.id === activeNode.id ? "var(--accent-cyan)" : "#ffffff");
+
+                // Highlight active links
+                linksGroup.selectAll("g.link-wrapper")
+                    .style("opacity", l => {
+                        if (l.type === 'structural') return 0.5;
+                        return (l.source.id === activeNode.id || l.target.id === activeNode.id) ? 1.0 : 0.05;
+                    })
+                    .select("path.link")
+                    .attr("stroke-width", l => {
+                        if (l.type === 'structural') return 1;
+                        return (l.source.id === activeNode.id || l.target.id === activeNode.id) ? 3.0 : 1.5;
+                    });
+            } else {
+                // Reset all opacity to normal
+                nodesGroup.selectAll("g.node-element")
+                    .style("opacity", 1.0)
+                    .select("circle.node")
+                    .attr("stroke-opacity", 0.3)
+                    .attr("stroke-width", 1.5)
+                    .attr("stroke", "#ffffff");
+
+                linksGroup.selectAll("g.link-wrapper")
+                    .style("opacity", d => d.type === 'structural' ? 0.4 : 1.0)
+                    .select("path.link")
+                    .attr("stroke-width", d => d.type === 'structural' ? 1 : 1.5);
+            }
+        }
+
+        // Click on node reveals details sidebar panel
+        function handleNodeClick(event, d) {
+            event.stopPropagation();
+            
+            // Remove previous selections
+            nodesGroup.selectAll("g.node-element circle.target-pulse").style("display", "none");
+            
+            selectedNode = d;
+            updateGraphVisibilities();
+
+            // Populate Metadata Sidebar
+            document.getElementById("detail-name").innerText = d.name;
+            document.getElementById("detail-path").innerText = d.path;
+            
+            const detailTypeBox = document.getElementById("detail-icon-bg");
+            const detailIcon = document.getElementById("detail-icon-type");
+            
+            detailTypeBox.style.background = getNodeColor(d);
+            
+            if (d.type === 'sub-class' || d.type === 'sub-function') {
+                detailIcon.setAttribute("data-lucide", d.type === 'sub-class' ? "box" : "code");
+                document.getElementById("meta-type").innerText = d.type.replace('sub-', 'Nested ');
+                document.getElementById("meta-row-loc").style.display = "none";
+                document.getElementById("meta-size").innerText = "Inherited";
+                document.getElementById("python-specific-details").style.display = "none";
+            } else {
+                detailIcon.setAttribute("data-lucide", d.type === 'python' ? "terminal" : "file-text");
+                document.getElementById("meta-type").innerText = d.type;
+                document.getElementById("meta-row-loc").style.display = "flex";
+                document.getElementById("meta-loc").innerText = d.loc || 0;
+                document.getElementById("meta-size").innerText = formatBytes(d.size || 0);
+                
+                if (d.type === 'python') {
+                    document.getElementById("python-specific-details").style.display = "block";
+                    
+                    // Render class lists
+                    const classList = document.getElementById("list-classes");
+                    classList.innerHTML = "";
+                    document.getElementById("count-classes").innerText = (d.classes || []).length;
+                    if ((d.classes || []).length === 0) {
+                        classList.innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted);">No classes defined</span>`;
+                    } else {
+                        d.classes.forEach(c => {
+                            classList.innerHTML += `
+                                <div class="detail-item-pill">
+                                    <span style="font-weight:600; color:white;">class ${c.name}</span>
+                                    <span style="font-size:0.7rem; color:var(--text-muted);">${(c.methods || []).length} methods</span>
+                                </div>
+                            `;
+                        });
+                    }
+
+                    // Render functions lists
+                    const funcList = document.getElementById("list-functions");
+                    funcList.innerHTML = "";
+                    document.getElementById("count-functions").innerText = (d.functions || []).length;
+                    if ((d.functions || []).length === 0) {
+                        funcList.innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted);">No top-level functions defined</span>`;
+                    } else {
+                        d.functions.forEach(f => {
+                            funcList.innerHTML += `
+                                <div class="detail-item-pill">
+                                    <span style="font-family:'Fira Code';">${f}()</span>
+                                </div>
+                            `;
+                        });
+                    }
+                } else {
+                    document.getElementById("python-specific-details").style.display = "none";
+                }
+            }
+
+            // Find direct dependencies (Imports)
+            const depList = document.getElementById("list-dependencies");
+            depList.innerHTML = "";
+            let depCount = 0;
+            
+            d3Links.forEach(l => {
+                if (l.type === 'structural') return;
+                if (l.source.id === d.id) {
+                    depCount++;
+                    depList.innerHTML += `
+                        <div class="detail-item-pill" style="cursor:pointer;" onclick="focusOnNodeId('${l.target.id}')">
+                            <span>${l.target.name}</span>
+                            <i data-lucide="arrow-right-circle" class="detail-item-arrow"></i>
+                        </div>
+                    `;
+                }
+            });
+            document.getElementById("count-deps").innerText = depCount;
+            if (depCount === 0) depList.innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted);">No outgoing connections</span>`;
+
+            // Find direct dependents (Used by)
+            const dependentList = document.getElementById("list-dependents");
+            dependentList.innerHTML = "";
+            let dependentCount = 0;
+            
+            d3Links.forEach(l => {
+                if (l.type === 'structural') return;
+                if (l.target.id === d.id) {
+                    dependentCount++;
+                    dependentList.innerHTML += `
+                        <div class="detail-item-pill" style="cursor:pointer;" onclick="focusOnNodeId('${l.source.id}')">
+                            <span>${l.source.name}</span>
+                            <i data-lucide="arrow-left-circle" class="detail-item-arrow" style="color:var(--accent-green);"></i>
+                        </div>
+                    `;
+                }
+            });
+            document.getElementById("count-dependents").innerText = dependentCount;
+            if (dependentCount === 0) dependentList.innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted);">No incoming dependencies</span>`;
+
+            lucide.createIcons();
+
+            // Open panel
+            document.getElementById("detail-sidebar").classList.add("active");
+        }
+
+        // Highlight Tree dependency path recursively
+        document.getElementById("highlight-tree-btn").addEventListener("click", () => {
+            if (!selectedNode) return;
+            
+            const subtreeNodes = new Set();
+            const subtreeLinks = new Set();
+            
+            function traceDownstream(nodeId) {
+                if (subtreeNodes.has(nodeId)) return;
+                subtreeNodes.add(nodeId);
+                
+                d3Links.forEach(l => {
+                    if (l.type === 'structural') return;
+                    if (l.source.id === nodeId) {
+                        subtreeLinks.add(l);
+                        traceDownstream(l.target.id);
+                    }
+                });
+            }
+            
+            function traceUpstream(nodeId) {
+                d3Links.forEach(l => {
+                    if (l.type === 'structural') return;
+                    if (l.target.id === nodeId) {
+                        subtreeNodes.add(l.source.id);
+                        subtreeLinks.add(l);
+                        traceUpstream(l.source.id);
+                    }
+                });
+            }
+            
+            // Trace both ways to get complete logical line
+            traceDownstream(selectedNode.id);
+            traceUpstream(selectedNode.id);
+            
+            // Apply layout highlights
+            nodesGroup.selectAll("g.node-element")
+                .style("opacity", d => subtreeNodes.has(d.id) ? 1.0 : 0.1);
+                
+            linksGroup.selectAll("g.link-wrapper")
+                .style("opacity", l => subtreeLinks.has(l) ? 1.0 : 0.03)
+                .select("path.link")
+                .attr("stroke-width", l => subtreeLinks.has(l) ? 3.0 : 1.5);
+        });
+
+        // Focus and Center a specific Node in D3 canvas
+        function focusOnNodeId(nodeId) {
+            const nodesById = new Map(d3Nodes.map(n => [n.id, n]));
+            const target = nodesById.get(nodeId);
+            if (!target) return;
+
+            // Trigger concentric pulse animation
+            const el = nodesGroup.selectAll("g.node-element").filter(d => d.id === nodeId);
+            el.select("circle.target-pulse")
+                .style("display", "block");
+
+            // Pan and Zoom transition
+            svg.transition()
+                .duration(1000)
+                .call(
+                    zoom.transform,
+                    d3.zoomIdentity.translate(width / 2, height / 2).scale(1.5).translate(-target.x, -target.y)
+                );
+
+            // Open detail sidebar
+            handleNodeClick(null, target);
+        }
+
+        // Setup autocomplete search features
+        function setupSearchAutocomplete() {
+            const searchBox = document.getElementById("search-box");
+            const dropdown = document.getElementById("search-dropdown");
+
+            searchBox.addEventListener("input", (e) => {
+                const val = e.target.value.toLowerCase().trim();
+                dropdown.innerHTML = "";
+                
+                if (!val) {
+                    dropdown.style.display = "none";
+                    return;
+                }
+
+                // Filter matching files / sub-elements
+                const matches = d3Nodes.filter(n => {
+                    if (n.name.toLowerCase().includes(val) || n.path.toLowerCase().includes(val)) return true;
+                    // Also check classes & functions inside files
+                    if (n.classes && n.classes.some(c => c.name.toLowerCase().includes(val))) return true;
+                    if (n.functions && n.functions.some(f => f.toLowerCase().includes(val))) return true;
+                    return false;
+                }).slice(0, 10);
+
+                if (matches.length === 0) {
+                    dropdown.style.display = "none";
+                    return;
+                }
+
+                matches.forEach(m => {
+                    dropdown.innerHTML += `
+                        <div class="search-item" onclick="selectSearchMatch('${m.id}')">
+                            <span class="search-item-name">${m.name}</span>
+                            <span class="search-item-path">${m.path}</span>
+                        </div>
+                    `;
+                });
+                
+                dropdown.style.display = "block";
+            });
+
+            // Close search dropdown on click outside
+            document.addEventListener("click", (e) => {
+                if (!e.target.closest(".search-container")) {
+                    dropdown.style.display = "none";
+                }
+            });
+        }
+
+        function selectSearchMatch(nodeId) {
+            document.getElementById("search-box").value = "";
+            document.getElementById("search-dropdown").style.display = "none";
+            focusOnNodeId(nodeId);
+        }
+
+        // Setup canvas Zoom behaviors
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 5])
+            .on("zoom", (event) => {
+                canvasGroup.attr("transform", event.transform);
+            });
+
+        svg.call(zoom);
+
+        // Resize Canvas dynamically
+        window.addEventListener("resize", () => {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            if (simulation) {
+                simulation.force("center", d3.forceCenter(width / 2, height / 2));
+                simulation.alpha(0.3).restart();
+            }
+        });
+
+        // Bind control parameters sliders
+        document.getElementById("slider-gravity").addEventListener("input", (e) => {
+            document.getElementById("val-gravity").innerText = e.target.value;
+            processDataAndDraw();
+        });
+        
+        document.getElementById("slider-distance").addEventListener("input", (e) => {
+            document.getElementById("val-distance").innerText = e.target.value;
+            processDataAndDraw();
+        });
+
+        document.getElementById("slider-collision").addEventListener("input", (e) => {
+            document.getElementById("val-collision").innerText = e.target.value;
+            processDataAndDraw();
+        });
+
+        // Filter toggles
+        document.getElementById("filter-py").addEventListener("change", processDataAndDraw);
+        document.getElementById("filter-html").addEventListener("change", processDataAndDraw);
+        document.getElementById("filter-json").addEventListener("change", processDataAndDraw);
+        document.getElementById("filter-tests").addEventListener("change", processDataAndDraw);
+
+        // Sidebar close
+        document.getElementById("close-sidebar-btn").addEventListener("click", () => {
+            document.getElementById("detail-sidebar").classList.remove("active");
+            selectedNode = null;
+            updateGraphVisibilities();
+        });
+
+        // Close sidebar on click canvas empty area
+        svg.on("click", (event) => {
+            if (event.target === svg.node()) {
+                document.getElementById("detail-sidebar").classList.remove("active");
+                nodesGroup.selectAll("g.node-element circle.target-pulse").style("display", "none");
+                selectedNode = null;
+                updateGraphVisibilities();
+            }
+        });
+
+        // Reset Physics forces
+        document.getElementById("reset-forces-btn").addEventListener("click", () => {
+            document.getElementById("slider-gravity").value = -250;
+            document.getElementById("slider-distance").value = 120;
+            document.getElementById("slider-collision").value = 28;
+            
+            document.getElementById("val-gravity").innerText = -250;
+            document.getElementById("val-distance").innerText = 120;
+            document.getElementById("val-collision").innerText = 28;
+            
+            // clear expansions
+            expandedNodesMap.clear();
+
+            processDataAndDraw();
+            
+            // Recenter view
+            svg.transition()
+                .duration(800)
+                .call(zoom.transform, d3.zoomIdentity);
+        });
+
+        // Reload data
+        document.getElementById("reparse-btn").addEventListener("click", fetchGraphData);
+
+        // Run on load
+        fetchGraphData();
+    </script>
+</body>
+</html>
