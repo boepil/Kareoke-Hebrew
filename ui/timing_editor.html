@@ -730,7 +730,6 @@
       border-radius: 2px;
       background: var(--warn);
     }
-    .small { font-size: 12px; color: var(--muted); }
     .pan { margin-top: 12px; }
     .pan input[type="range"] {
       width: 100%;
@@ -738,25 +737,6 @@
       padding: 0;
       background: transparent;
       border: 0;
-    }
-    .export-status {
-      display: grid;
-      gap: 8px;
-      padding: 12px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.03);
-    }
-    .export-status[hidden] {
-      display: none;
-    }
-    .pipeline-status {
-      display: grid;
-      gap: 10px;
-      padding: 12px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.025);
     }
     .pipeline-stages {
       display: grid;
@@ -866,35 +846,6 @@
     @keyframes pipeline-shift {
       from { background-position: 0 0; }
       to { background-position: 200% 0; }
-    }
-    .progress-bar {
-      width: 100%;
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.08);
-      overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%;
-      width: 0%;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #e4b21d 0%, #ffd76a 100%);
-      transition: width 220ms ease;
-    }
-    .progress-meta {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .path-card {
-      display: grid;
-      gap: 8px;
-      padding: 12px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.03);
     }
     .rail-divider {
       height: 1px;
@@ -1368,20 +1319,10 @@
           </div>
 
           <!-- Footer -->
-          <div class="status-pill">
-            <div class="chip" id="projectStatus">No project loaded.</div>
-          </div>
+           <div class="status-pill">
+             <div class="chip" id="projectStatus">No project loaded.</div>
+           </div>
 
-          <!-- Hidden elements kept for JS compatibility -->
-          <textarea id="lyricsText" hidden></textarea>
-          <div class="export-status" id="exportStatus" hidden>
-            <div class="progress-meta">
-              <span id="exportStage">Idle</span>
-              <span id="exportPercent">0%</span>
-            </div>
-            <div class="progress-bar"><div class="progress-fill" id="exportProgressFill"></div></div>
-            <div class="small" id="exportDetail">No export running.</div>
-          </div>
         </section>
       </aside>
 
@@ -1450,14 +1391,14 @@
                 <button id="processLyrics" disabled>Process</button>
               </div>
               <div class="drawer-section">
-                <div class="drawer-section-title">Search Lyrics</div>
+                <div class="drawer-section-title">Find Lyrics Online</div>
                 <button class="btn-primary" id="searchLyrics" disabled
                         style="display:flex;align-items:center;justify-content:center;gap:8px;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="11" cy="11" r="8"/>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                   </svg>
-                  Search Lyrics
+                  Find Lyrics Online
                 </button>
                 <div id="lyricsPreview" hidden>
                   <div style="display:flex;align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap;">
@@ -1559,33 +1500,23 @@
       audioTime: $("audioTime"),
       zoomOut: $("zoomOut"),
       zoomIn: $("zoomIn"),
-      zoomReset: $("zoomReset"),
-      prevWord: $("prevWord"),
-      nextWord: $("nextWord"),
-      lastWord: $("lastWord"),
-      placeWord: $("placeWord"),
-      waveShell: $("waveShell"),
-      wordLayer: $("wordLayer"),
-      waveCanvas: $("waveCanvas"),
-      wavePan: $("wavePan"),
-      wavePanStart: $("wavePanStart"),
-      wavePanEnd: $("wavePanEnd"),
-      playhead: $("playhead"),
-      audio: $("audio"),
-      vocalsAudio: $("vocalsAudio"),
-      musicAudio: $("musicAudio"),
-      rewindStart: $("rewindStart"),
-      playPause: $("playPause"),
-      back2: $("back2"),
-      jumpWord: $("jumpWord"),
-      exportMp4: $("exportMp4"),
-      showVideo: $("showVideo"),
-      exportStatus: $("exportStatus"),
-      exportStage: $("exportStage"),
-      exportPercent: $("exportPercent"),
-      exportProgressFill: $("exportProgressFill"),
-      exportDetail: $("exportDetail"),
-      resetWord: $("resetWord"),
+       zoomReset: $("zoomReset"),
+       prevWord: $("prevWord"),
+       nextWord: $("nextWord"),
+       lastWord: $("lastWord"),
+       placeWord: $("placeWord"),
+       rewindStart: $("rewindStart"),
+       playPause: $("playPause"),
+       back2: $("back2"),
+       jumpWord: $("jumpWord"),
+       exportMp4: $("exportMp4"),
+       showVideo: $("showVideo"),
+       exportStatus: null,
+       exportStage: null,
+       exportPercent: null,
+       exportProgressFill: null,
+       exportDetail: null,
+       resetWord: $("resetWord"),
 
       stemMix: $("stemMix"),
       rightDrawer: $("rightDrawer"),
@@ -1642,6 +1573,7 @@
       exportLocalStartMs: null,
       outputVideoPath: null,
       outputVideoAvailable: false,
+      exportRunning: false,
       lyricsTextDebounce: null,
       stemMixValue: 0,
       stemMixAvailable: false,
@@ -2236,31 +2168,66 @@
 
     function renderExportStatus(payload) {
       const status = payload?.status || "idle";
-      const detail = payload?.detail || payload?.status || "Idle";
       const progress = estimatedExportProgress(payload);
 
       if (status === "idle") {
-        ui.exportStatus.hidden = true;
-        ui.exportStage.textContent = "Idle";
-        ui.exportPercent.textContent = "0%";
-        ui.exportProgressFill.style.width = "0%";
-        ui.exportDetail.textContent = "No export running.";
+        state.exportRunning = false;
         state.outputVideoPath = null;
         state.exportLocalStartMs = null;
         renderShowVideoButton();
+        renderPipelineStatus({ status: "idle", stages: [] });
         return;
       }
 
+      if (["queued", "building_subtitles", "rendering"].includes(status)) {
+        state.exportRunning = true;
+        state.outputVideoPath = payload?.output_video || null;
+        if (state.outputVideoPath) {
+          state.outputVideoAvailable = true;
+        }
+        renderShowVideoButton();
+        const elapsedText = state.exportLocalStartMs
+          ? formatPlaybackTime(Math.max((Date.now() - state.exportLocalStartMs) / 1000, 0))
+          : "";
+        renderPipelineStatus({
+          status: "running",
+          stage_label: "Rendering MP4",
+          status_label: `Rendering... ${progress}%`,
+          progress: progress,
+          elapsed_text: elapsedText,
+        });
+        return;
+      }
+
+      if (status === "done" || status === "completed") {
+        state.exportRunning = false;
+        state.outputVideoPath = payload?.output_video || null;
+        if (state.outputVideoPath) {
+          state.outputVideoAvailable = true;
+        }
+        renderShowVideoButton();
+        renderPipelineStatus({
+          status: "completed",
+          stage_label: "Export complete",
+          status_label: "\u2713",
+          progress: 100,
+        });
+        return;
+      }
+
+      state.exportRunning = false;
       state.outputVideoPath = payload?.output_video || null;
       if (state.outputVideoPath) {
         state.outputVideoAvailable = true;
       }
-      ui.exportStatus.hidden = false;
-      ui.exportStage.textContent = detail;
-      ui.exportPercent.textContent = `${progress}%`;
-      ui.exportProgressFill.style.width = `${progress}%`;
-      ui.exportDetail.textContent = payload?.error || payload?.output_video || `Status: ${status}`;
       renderShowVideoButton();
+      renderPipelineStatus({
+        status: "error",
+        stage_label: "Export failed",
+        status_label: "\u2715",
+        error: payload?.error || "Export failed",
+        progress: progress,
+      });
     }
 
     async function checkOutputVideoStatus() {
@@ -2401,7 +2368,7 @@
       const currentStage = stages.find((stage) => stage && stage.status === "running") || null;
       const finishedCount = stages.filter((stage) => stage && ["done", "skipped"].includes(stage.status)).length;
       const totalStages = stages.length || 1;
-      const progress = Math.max(0, Math.min((finishedCount / totalStages) * 100, 100));
+      const progress = payload?.progress !== undefined ? payload.progress : Math.max(0, Math.min((finishedCount / totalStages) * 100, 100));
       const elapsed = currentStage
         ? formatPipelineElapsed(currentStage.elapsed_seconds || payload?.stage_elapsed_seconds || 0)
         : (status === "completed" ? formatPipelineElapsed(payload?.stage_elapsed_seconds || 0) : "0:00");
@@ -2411,27 +2378,27 @@
       ui.pipelineCard.classList.remove("idle", "running", "completed", "error");
 
       if (status === "running") {
-        const stageName = currentStage?.label || payload?.current_stage_label || "Pipeline";
+        const stageName = payload?.stage_label || currentStage?.label || payload?.current_stage_label || "Pipeline";
         ui.pipelineStage.textContent = stageName;
-        ui.pipelineStatusLabel.textContent = "Running...";
-        ui.pipelineElapsed.textContent = elapsed;
+        ui.pipelineStatusLabel.textContent = payload?.status_label || "Running...";
+        ui.pipelineElapsed.textContent = payload?.elapsed_text !== undefined ? payload.elapsed_text : elapsed;
         ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
         ui.pipelineCard.classList.add("running");
         updateStatusChip(ui.projectStatus, `Running: ${stageName}...`, "ok");
       } else if (status === "completed") {
-        ui.pipelineStage.textContent = "Pipeline complete";
-        ui.pipelineStatusLabel.textContent = "✓";
+        ui.pipelineStage.textContent = payload?.stage_label || "Pipeline complete";
+        ui.pipelineStatusLabel.textContent = payload?.status_label || "✓";
         ui.pipelineElapsed.textContent = "";
-        ui.pipelineProgressFill.style.width = "100%";
+        ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
         ui.pipelineCard.classList.add("completed");
       } else if (status === "error") {
         const errMsg = payload?.error || "Pipeline failed";
         const failedStage = stages.find((s) => s && s.status === "error");
-        const stageName = failedStage?.label || payload?.current_stage_label || "";
+        const stageName = payload?.stage_label || failedStage?.label || payload?.current_stage_label || "";
         ui.pipelineStage.textContent = stageName ? `${stageName}: ${errMsg}` : errMsg;
-        ui.pipelineStatusLabel.textContent = "✕";
+        ui.pipelineStatusLabel.textContent = payload?.status_label || "✕";
         ui.pipelineElapsed.textContent = "";
         ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
@@ -2455,7 +2422,9 @@
 
     async function syncPipelineStatus() {
       const payload = await fetchJson(`/api/pipeline/status?t=${Date.now()}`);
-      renderPipelineStatus(payload);
+      if (!state.exportRunning) {
+        renderPipelineStatus(payload);
+      }
       return payload;
     }
 
@@ -4215,9 +4184,6 @@
         renderExportStatus(payload);
         startExportPolling();
         while (["queued", "building_subtitles", "rendering"].includes(payload.status)) {
-          const detail = payload.detail ? `${payload.detail}` : payload.status;
-          const percent = `${estimatedExportProgress(payload)}%`;
-          updateStatusChip(ui.projectStatus, `Rendering MP4: ${detail} ${percent}`.trim());
           await new Promise((resolve) => setTimeout(resolve, 2000));
           payload = await syncExportStatus();
         }
@@ -4226,7 +4192,6 @@
           throw new Error(payload.error || "MP4 export failed");
         }
         updateStatusChip(ui.projectStatus, `Exported ${payload.output_video}`, "ok");
-        renderExportStatus(payload);
       } catch (error) {
         stopExportPolling();
         updateStatusChip(ui.projectStatus, error.message, "warn");
@@ -4860,7 +4825,7 @@
             updateStatusChip(ui.projectStatus, error.message, "warn");
           } finally {
             ui.searchLyrics.disabled = false;
-            ui.searchLyrics.textContent = "Search Lyrics";
+             ui.searchLyrics.textContent = "Find Lyrics Online";
           }
         });
       }
