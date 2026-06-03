@@ -127,6 +127,27 @@ def _copy_if_exists(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
+def slice_wav(input_path: Path, output_path: Path, start_time: float) -> None:
+    """Slice a WAV file from start_time to the end and save it to output_path."""
+    with wave.open(str(input_path), "rb") as infile:
+        params = infile.getparams()
+        frame_rate = params.framerate
+        start_frame = int(start_time * frame_rate)
+        total_frames = infile.getnframes()
+        if start_frame >= total_frames:
+            start_frame = max(0, total_frames - 1)
+        infile.setpos(start_frame)
+        frames_to_read = total_frames - start_frame
+        if frames_to_read <= 0:
+            frames = b""
+        else:
+            frames = infile.readframes(frames_to_read)
+
+    with wave.open(str(output_path), "wb") as outfile:
+        outfile.setparams(params)
+        outfile.writeframes(frames)
+
+
 def run_first_pass_autosync(
     input_file: str | Path,
     config: str | Path | Mapping[str, Any],
@@ -139,6 +160,8 @@ def run_first_pass_autosync(
     project_key: str | None = None,
     progress_callback: ProgressCallback | None = None,
     existing_overrides: dict[str, Any] | None = None,
+    start_time_offset: float = 0.0,
+    placed_word_count: int = 0,
 ) -> dict[str, Any]:
     """Run the phase-2 sync path and write an editor-ready project."""
     config_data = config if isinstance(config, Mapping) else None
@@ -187,19 +210,41 @@ def run_first_pass_autosync(
     else:
         vocals_path = produced_vocals
         no_vocals_path = produced_no_vocals
+
+    alignment_vocals_path = vocals_path
+    alignment_lyrics_text = lyrics_text
+
+    if start_time_offset > 0.0:
+        sliced_vocals_path = project_temp_dir / "audio" / "vocals_remaining.wav"
+        LOGGER.info("Slicing vocals audio from %f seconds for incremental AI Pass", start_time_offset)
+        slice_wav(vocals_path, sliced_vocals_path, start_time_offset)
+        alignment_vocals_path = sliced_vocals_path
+
+        if placed_word_count > 0:
+            manifest_path = project_temp_dir / "subtitles" / "timing_editor_manifest.json"
+            if manifest_path.exists():
+                try:
+                    with manifest_path.open("r", encoding="utf-8") as handle:
+                        manifest = json.load(handle)
+                    manifest_words = sorted(manifest.get("words", []), key=lambda w: w.get("index", 0))
+                    remaining_words = manifest_words[placed_word_count:]
+                    alignment_lyrics_text = " ".join([w["text"] for w in remaining_words])
+                except Exception as exc:
+                    LOGGER.warning("Could not extract remaining lyrics text for alignment: %s", exc)
+
     _emit_progress(progress_callback, "stem_separation", "done", "Vocal stems ready")
 
     _emit_progress(progress_callback, "transcription", "running", "Transcribing vocals")
     transcript_fallback = False
     try:
-        transcript = transcribe_audio(vocals_path, config)
+        transcript = transcribe_audio(alignment_vocals_path, config)
         segments = transcript.get("segments", [])
         if not isinstance(segments, list) or not segments:
             raise RuntimeError("Transcription returned no segments")
         _emit_progress(progress_callback, "transcription", "done", "Transcription complete")
     except Exception as exc:
         transcript_fallback = True
-        transcript = _build_lyrics_seed_transcript(vocals_path, lyrics_text)
+        transcript = _build_lyrics_seed_transcript(alignment_vocals_path, alignment_lyrics_text)
         _emit_progress(
             progress_callback,
             "transcription",
@@ -209,7 +254,7 @@ def run_first_pass_autosync(
 
     correction_status = "skipped"
     _emit_progress(progress_callback, "lm_studio_correction", "running", "Checking lyric correction")
-    corrected_transcript = correct_transcript_with_lm_studio(transcript, lyrics_text, config)
+    corrected_transcript = correct_transcript_with_lm_studio(transcript, alignment_lyrics_text, config)
     correction_status = str(corrected_transcript.get("correction_status", "skipped"))
     _emit_progress(
         progress_callback,
@@ -220,7 +265,7 @@ def run_first_pass_autosync(
 
     _emit_progress(progress_callback, "whisperx_alignment", "running", "Aligning words")
     try:
-        aligned = align_transcript(vocals_path, corrected_transcript, config)
+        aligned = align_transcript(alignment_vocals_path, corrected_transcript, config)
         _emit_progress(progress_callback, "whisperx_alignment", "done", "Alignment complete")
     except Exception as exc:
         aligned = dict(corrected_transcript)
@@ -253,6 +298,8 @@ def run_first_pass_autosync(
         lyrics_source_url=lyrics_source_url,
         project_key=project_key,
         existing_overrides=existing_overrides,
+        start_time_offset=start_time_offset,
+        placed_word_count=placed_word_count,
     )
     _emit_progress(progress_callback, "editor_project", "done", "Editor project ready")
     return {

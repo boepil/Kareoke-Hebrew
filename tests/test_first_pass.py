@@ -194,3 +194,93 @@ def test_first_pass_pipeline_uses_vocals_stem(tmp_path: Path) -> None:
     assert Path(result["vocals_wav"]).name == "vocals.wav"
     assert Path(result["project"]["state_path"]).exists()
     assert json.loads(Path(result["project"]["overrides_path"]).read_text(encoding="utf-8"))["placed_word_count"] == 2
+
+
+def test_export_editor_project_incremental(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    temp_dir = tmp_path / "data"
+    audio_wav = temp_dir / "audio.wav"
+    vocals_wav = temp_dir / "vocals.wav"
+    no_vocals_wav = temp_dir / "no_vocals.wav"
+    _write_wav(audio_wav)
+    _write_wav(vocals_wav)
+    _write_wav(no_vocals_wav)
+
+    project_key = "test_project"
+    project_dir = temp_dir / "projects" / project_key
+    project_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = project_dir / "subtitles" / "timing_editor_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    initial_manifest = {
+        "version": 1,
+        "source_audio": str(vocals_wav),
+        "lines": [
+            {
+                "id": "line_000",
+                "index": 0,
+                "text": "אחד שתיים",
+                "start": 0.0,
+                "end": 2.0,
+                "word_ids": ["word_0000", "word_0001"]
+            }
+        ],
+        "words": [
+            {"id": "word_0000", "index": 0, "line_index": 0, "text": "אחד", "start": 0.0, "end": 1.0},
+            {"id": "word_0001", "index": 1, "line_index": 0, "text": "שתיים", "start": 1.0, "end": 2.0}
+        ],
+        "intro": {}
+    }
+    manifest_path.write_text(json.dumps(initial_manifest), encoding="utf-8")
+
+    existing_overrides = {
+        "version": 1,
+        "placed_word_count": 1,
+        "words": {
+            "word_0000": {"start": 0.1, "end": 0.9}
+        }
+    }
+
+    aligned = {
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 1.0,
+                "words": [
+                    {"word": "שתיים", "start": 0.2, "end": 0.8}
+                ]
+            }
+        ]
+    }
+
+    project = export_editor_project(
+        cfg,
+        project_name="test_project",
+        source_name="song.mp3",
+        original_audio_name="song.mp3",
+        lyrics_text="אחד שתיים",
+        audio_artifacts={
+            "audio_source": tmp_path / "song.mp3",
+            "audio_wav": audio_wav,
+            "vocals_wav": vocals_wav,
+            "no_vocals_wav": no_vocals_wav,
+        },
+        aligned_transcript=aligned,
+        lyrics_source_url="https://shirrim.com/song-lyrics/example/",
+        project_key=project_key,
+        existing_overrides=existing_overrides,
+        start_time_offset=0.9,
+        placed_word_count=1,
+    )
+
+    overrides = json.loads(Path(project["overrides_path"]).read_text(encoding="utf-8"))
+    manifest = json.loads(Path(project["manifest_path"]).read_text(encoding="utf-8"))
+
+    assert manifest["words"][0]["start"] == 0.1
+    assert manifest["words"][0]["end"] == 0.9
+
+    assert manifest["words"][1]["start"] == 1.1
+    assert manifest["words"][1]["end"] == 1.7
+
+    # Placed word count stays at the user's committed count in incremental mode
+    assert overrides["placed_word_count"] == 1

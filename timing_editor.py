@@ -2257,6 +2257,8 @@ def _execute_ai_first_pass_job(
     original_audio_name: str,
     lyrics_text: str,
     lyrics_source_url: str,
+    start_time_offset: float = 0.0,
+    placed_word_count: int = 0,
 ) -> dict[str, Any]:
     initial_job = _default_pipeline_job()
     initial_job.update(
@@ -2280,9 +2282,12 @@ def _execute_ai_first_pass_job(
     try:
         mark("stem_separation", "running", "Preparing vocal stems")
         
-        # Keep manual timings to seamlessly merge with the AI pass
+        # Keep manual timings to seamlessly merge with the AI pass.
+        # Read from project-scoped paths (not base_paths) so the worker
+        # sees the same overrides the user committed in the editor.
         try:
-            existing_overrides = _read_overrides(base_paths)
+            project_paths = _project_paths(base_paths, project_key)
+            existing_overrides = _read_overrides(project_paths)
         except Exception:
             existing_overrides = None
 
@@ -2297,6 +2302,8 @@ def _execute_ai_first_pass_job(
             project_key=project_key,
             progress_callback=mark,
             existing_overrides=existing_overrides,
+            start_time_offset=start_time_offset,
+            placed_word_count=placed_word_count,
         )
         _set_active_project_key(base_paths, project_key)
         completed_job = _read_pipeline_job(base_paths)
@@ -3328,6 +3335,8 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         original_audio_name: str,
         lyrics_text: str,
         lyrics_source_url: str,
+        start_time_offset: float = 0.0,
+        placed_word_count: int = 0,
     ) -> mp.Process:
         worker = mp.get_context("spawn").Process(
             target=_execute_ai_first_pass_job,
@@ -3343,6 +3352,8 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
                 "original_audio_name": original_audio_name,
                 "lyrics_text": lyrics_text,
                 "lyrics_source_url": lyrics_source_url,
+                "start_time_offset": start_time_offset,
+                "placed_word_count": placed_word_count,
             },
             daemon=True,
         )
@@ -3762,6 +3773,32 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         lyrics_text = _project_lyrics_text(project_paths)
         lyrics_source_url = str(state.get("lyrics_source_url", "")).strip()
         original_audio_name = str(state.get("original_audio_name", "")).strip() or source_name
+
+        # Calculate incremental parameters if there are placed/committed words
+        start_time_offset = 0.0
+        placed_word_count = 0
+        try:
+            existing_overrides = _read_overrides(project_paths)
+            placed_word_count = max(int(existing_overrides.get("placed_word_count", 0) or 0), 0)
+            if placed_word_count > 0:
+                manifest = _read_manifest(project_paths)
+                manifest_words = manifest.get("words", [])
+                if manifest_words:
+                    if placed_word_count >= len(manifest_words):
+                        return 400, {"error": "All words in the project are already timed and committed"}
+                    last_word = manifest_words[placed_word_count - 1]
+                    override_word = existing_overrides.get("words", {}).get(last_word["id"], {})
+                    last_committed_end = float(override_word.get("end", last_word.get("end", 0.0)))
+                    if last_committed_end > 0.0:
+                        start_time_offset = last_committed_end
+                else:
+                    placed_word_count = 0
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Could not check for incremental AI pass: %s", exc)
+            placed_word_count = 0
+            start_time_offset = 0.0
+
         job_id = uuid.uuid4().hex
         try:
             if app.testing:
@@ -3775,6 +3812,8 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
                     original_audio_name=original_audio_name or source_path.name,
                     lyrics_text=lyrics_text,
                     lyrics_source_url=lyrics_source_url,
+                    start_time_offset=start_time_offset,
+                    placed_word_count=placed_word_count,
                 )
                 app.config["PIPELINE_JOB"] = _decorate_pipeline_job(_read_pipeline_job(base_paths))
                 _clear_pipeline_worker()
@@ -3807,6 +3846,8 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             original_audio_name=original_audio_name,
             lyrics_text=lyrics_text,
             lyrics_source_url=lyrics_source_url,
+            start_time_offset=start_time_offset,
+            placed_word_count=placed_word_count,
         )
         return 202, {"ok": True, "job_id": job_id, "status": "running", "message": "Pipeline started"}
 

@@ -220,6 +220,49 @@ def _copy_if_exists(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
 
 
+def _build_remaining_word_stream(
+    remaining_words_templates: list[dict[str, Any]],
+    aligned_words: list[dict[str, Any]],
+    audio_duration: float,
+    start_time_offset: float,
+) -> list[dict[str, Any]]:
+    if not remaining_words_templates:
+        return []
+
+    if audio_duration <= 0:
+        audio_duration = max(len(remaining_words_templates) * 0.25, 1.0)
+    default_duration = max(audio_duration / max(len(remaining_words_templates), 1), 0.12)
+
+    words: list[dict[str, Any]] = []
+    fallback_cursor = 0.0
+    aligned_cursor = 0
+
+    for index, word_template in enumerate(remaining_words_templates):
+        if aligned_cursor < len(aligned_words):
+            aligned = aligned_words[aligned_cursor]
+            start = float(aligned["start"])
+            end = float(aligned["end"])
+            fallback_cursor = end
+            aligned_cursor += 1
+        else:
+            start = max(fallback_cursor, 0.0)
+            end = start + default_duration
+            fallback_cursor = end
+
+        if end <= start:
+            end = start + max(default_duration, 0.12)
+
+        shifted_start = round(start + start_time_offset, 3)
+        shifted_end = round(end + start_time_offset, 3)
+
+        w = dict(word_template)
+        w["start"] = shifted_start
+        w["end"] = shifted_end
+        words.append(w)
+
+    return words
+
+
 def export_editor_project(
     config: str | Path | Mapping[str, Any],
     *,
@@ -232,6 +275,8 @@ def export_editor_project(
     lyrics_source_url: str = "",
     project_key: str | None = None,
     existing_overrides: dict[str, Any] | None = None,
+    start_time_offset: float = 0.0,
+    placed_word_count: int = 0,
 ) -> dict[str, Any]:
     """Write an editor project with all words already committed."""
     config_path = Path(config) if not isinstance(config, Mapping) else None
@@ -258,6 +303,7 @@ def export_editor_project(
 
     manifest_name = str(subtitle_settings.get("manifest_name", "subtitles_manifest.json"))
     overrides_name = str(subtitle_settings.get("timing_overrides_name", "timing_overrides.json"))
+    editor_manifest_path = project_dir / "subtitles" / "timing_editor_manifest.json"
 
     lyrics_lines = _clean_lines(lyrics_text)
     audio_duration = 0.0
@@ -266,23 +312,74 @@ def export_editor_project(
         audio_duration = _read_wav_duration(audio_wav)
 
     aligned_words = _flatten_aligned_words(aligned_transcript)
-    words, line_entries = _build_word_stream(lyrics_lines, aligned_words, audio_duration)
 
-    if existing_overrides:
-        manual_words = existing_overrides.get("words", {})
-        if manual_words:
-            for w in words:
-                w_id = w.get("id")
-                if w_id in manual_words:
-                    w["start"] = float(manual_words[w_id].get("start", w["start"]))
-                    w["end"] = float(manual_words[w_id].get("end", w["end"]))
-            
-            word_lookup = {w["id"]: w for w in words}
-            for line in line_entries:
-                word_ids = line.get("word_ids", [])
-                if word_ids:
-                    line["start"] = float(word_lookup[word_ids[0]]["start"])
-                    line["end"] = float(word_lookup[word_ids[-1]]["end"])
+    is_incremental = start_time_offset > 0.0 and placed_word_count > 0
+    if is_incremental and not editor_manifest_path.exists():
+        LOGGER.warning(
+            "Incremental AI pass requested (offset=%.3f, placed=%d) but editor manifest missing at %s; falling back to full alignment",
+            start_time_offset,
+            placed_word_count,
+            editor_manifest_path,
+        )
+        is_incremental = False
+
+    if is_incremental:
+        import json
+        try:
+            with editor_manifest_path.open("r", encoding="utf-8") as handle:
+                existing_manifest = json.load(handle)
+        except Exception:
+            existing_manifest = {}
+
+        original_words = existing_manifest.get("words", [])
+        original_words = sorted(original_words, key=lambda w: w.get("index", 0))
+
+        words = []
+        for i in range(min(placed_word_count, len(original_words))):
+            w = dict(original_words[i])
+            w_id = w["id"]
+            if existing_overrides and w_id in existing_overrides.get("words", {}):
+                w["start"] = float(existing_overrides["words"][w_id]["start"])
+                w["end"] = float(existing_overrides["words"][w_id]["end"])
+            words.append(w)
+
+        remaining_templates = original_words[placed_word_count:]
+        remaining_words = _build_remaining_word_stream(
+            remaining_templates,
+            aligned_words,
+            audio_duration - start_time_offset,
+            start_time_offset,
+        )
+        words.extend(remaining_words)
+
+        word_lookup = {w["id"]: w for w in words}
+        line_entries = []
+        for line in existing_manifest.get("lines", []):
+            line_copy = dict(line)
+            word_ids = line_copy.get("word_ids", [])
+            if word_ids:
+                line_copy["start"] = float(word_lookup[word_ids[0]]["start"])
+                line_copy["end"] = float(word_lookup[word_ids[-1]]["end"])
+            line_entries.append(line_copy)
+
+    else:
+        words, line_entries = _build_word_stream(lyrics_lines, aligned_words, audio_duration)
+
+        if existing_overrides:
+            manual_words = existing_overrides.get("words", {})
+            if manual_words:
+                for w in words:
+                    w_id = w.get("id")
+                    if w_id in manual_words:
+                        w["start"] = float(manual_words[w_id].get("start", w["start"]))
+                        w["end"] = float(manual_words[w_id].get("end", w["end"]))
+
+                word_lookup = {w["id"]: w for w in words}
+                for line in line_entries:
+                    word_ids = line.get("word_ids", [])
+                    if word_ids:
+                        line["start"] = float(word_lookup[word_ids[0]]["start"])
+                        line["end"] = float(word_lookup[word_ids[-1]]["end"])
 
     intro = {
         "intro_title": project_name,
@@ -299,21 +396,39 @@ def export_editor_project(
         "intro": intro,
     }
 
-    overrides_payload = {
-        "version": 1,
-        "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "global_offset": 0.0,
-        "placed_word_count": len(words),
-        "lyrics_text": "\n".join(lyrics_lines),
-        "lines": {},
-        "words": {
-            word["id"]: {
+    if existing_overrides:
+        overrides_payload = dict(existing_overrides)
+        overrides_payload["exported_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        # In incremental mode, keep the user's committed count so only manually
+        # placed words are treated as "placed"; the AI-aligned remainder stays
+        # uncommitted and can be edited. In full mode, all words are placed.
+        if is_incremental and placed_word_count > 0:
+            overrides_payload["placed_word_count"] = placed_word_count
+        else:
+            overrides_payload["placed_word_count"] = len(words)
+        overrides_payload["lyrics_text"] = "\n".join(lyrics_lines)
+        overrides_payload["words"] = dict(overrides_payload.get("words", {}))
+        for word in words:
+            overrides_payload["words"][word["id"]] = {
                 "start": float(word["start"]),
                 "end": float(word["end"]),
             }
-            for word in words
-        },
-    }
+    else:
+        overrides_payload = {
+            "version": 1,
+            "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "global_offset": 0.0,
+            "placed_word_count": len(words),
+            "lyrics_text": "\n".join(lyrics_lines),
+            "lines": {},
+            "words": {
+                word["id"]: {
+                    "start": float(word["start"]),
+                    "end": float(word["end"]),
+                }
+                for word in words
+            },
+        }
 
     state_payload = {
         "version": 1,
