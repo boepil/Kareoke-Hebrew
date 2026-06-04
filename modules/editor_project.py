@@ -399,13 +399,12 @@ def export_editor_project(
     if existing_overrides:
         overrides_payload = dict(existing_overrides)
         overrides_payload["exported_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        # In incremental mode, keep the user's committed count so only manually
-        # placed words are treated as "placed"; the AI-aligned remainder stays
-        # uncommitted and can be edited. In full mode, all words are placed.
-        if is_incremental and placed_word_count > 0:
-            overrides_payload["placed_word_count"] = placed_word_count
-        else:
-            overrides_payload["placed_word_count"] = len(words)
+        # The AI pass always commits all words: the user's manually-placed
+        # words retain their original times (preserved above at lines
+        # 338-344), and the AI-aligned remainder becomes committed too. This
+        # matches the user's expectation that "AI pass = place everything"
+        # regardless of whether any words were pre-committed.
+        overrides_payload["placed_word_count"] = len(words)
         overrides_payload["lyrics_text"] = "\n".join(lyrics_lines)
         overrides_payload["words"] = dict(overrides_payload.get("words", {}))
         for word in words:

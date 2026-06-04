@@ -282,5 +282,6 @@ def test_export_editor_project_incremental(tmp_path: Path) -> None:
     assert manifest["words"][1]["start"] == 1.1
     assert manifest["words"][1]["end"] == 1.7
 
-    # Placed word count stays at the user's committed count in incremental mode
-    assert overrides["placed_word_count"] == 1
+    # Placed word count is set to the total word count after the AI pass,
+    # so all words (including the AI-aligned remainder) are committed.
+    assert overrides["placed_word_count"] == 2
