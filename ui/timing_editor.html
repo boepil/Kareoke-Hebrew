@@ -330,6 +330,10 @@
       padding: 12px;
       font-size: 16px;
     }
+    .drawer-footer button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
     .drawer-footer-meta {
       font-size: 11px;
       color: var(--muted);
@@ -935,10 +939,13 @@
     }
     .btn-primary:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.15); }
     .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-primary.saved {
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--text);
+    .btn-primary.saved,
+    .btn-primary:disabled.saved {
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--muted);
       border: 1px solid var(--line);
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     /* Red outline button */
@@ -3428,9 +3435,12 @@
       ].forEach((button) => {
         button.disabled = !hasAudio;
       });
-      if (ui.saveProject) {
-        ui.saveProject.disabled = !hasProject;
-      }
+      // Note: saveProject and saveLyrics disabled state is owned by
+      // renderSaveButtons (it checks both hasProject AND hasUnsavedChanges).
+      // Setting disabled here would be overwritten by every renderAll(), but
+      // paths like refreshStemAvailability() call renderButtons() WITHOUT
+      // renderSaveButtons(), which would otherwise re-enable the save buttons
+      // even when there are no unsaved changes.
       if (ui.deleteProject) {
         ui.deleteProject.disabled = !hasProject;
       }
@@ -3466,17 +3476,16 @@
     }
 
     function renderSaveButtons() {
-      if (state.hasUnsavedChanges) {
-        [ui.saveProject, ui.saveLyrics].forEach((btn) => {
-          if (!btn) return;
-          btn.classList.remove("saved");
-        });
-      } else {
-        [ui.saveProject, ui.saveLyrics].forEach((btn) => {
-          if (!btn) return;
-          btn.classList.add("saved");
-        });
-      }
+      const hasProject = Boolean(state.session?.project_id);
+      // Save buttons are only meaningful when a project is loaded AND there
+      // are changes to save. Disable (and visually grey out) when either
+      // condition is unmet.
+      const shouldBeEnabled = hasProject && state.hasUnsavedChanges;
+      [ui.saveProject, ui.saveLyrics].forEach((btn) => {
+        if (!btn) return;
+        btn.disabled = !shouldBeEnabled;
+        btn.classList.toggle("saved", !shouldBeEnabled);
+      });
     }
 
     function markUnsaved() {
@@ -3820,6 +3829,9 @@
         state.zoomSeconds = DEFAULT_ZOOM_SECONDS;
         state.displayWindow = { start: 0, end: DEFAULT_ZOOM_SECONDS };
         state.wordDrag = null;
+        // Loading a project from disk means the in-memory state matches
+        // the last saved snapshot, so clear any unsaved-changes flag.
+        state.hasUnsavedChanges = false;
         ui.lyricsText.value = "";
         updateLyricsSourceLink("");
         renderAll();
