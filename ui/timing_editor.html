@@ -1332,6 +1332,7 @@
           <button class="panel-toggle right" id="toggleRight" aria-label="Toggle Right Panel">▶</button>
           <input id="projectTitle" class="project-title-input" type="text" placeholder="Singer / Project Name">
           <div class="preview empty" id="preview">Import a project to begin.</div>
+          <textarea id="lyricsText" hidden></textarea>
           <audio id="audio" controls preload="metadata"></audio>
           <audio id="vocalsAudio" preload="metadata"></audio>
           <audio id="musicAudio" preload="metadata"></audio>
@@ -1509,14 +1510,22 @@
        playPause: $("playPause"),
        back2: $("back2"),
        jumpWord: $("jumpWord"),
-       exportMp4: $("exportMp4"),
-       showVideo: $("showVideo"),
-       exportStatus: null,
-       exportStage: null,
-       exportPercent: null,
-       exportProgressFill: null,
-       exportDetail: null,
-       resetWord: $("resetWord"),
+        exportMp4: $("exportMp4"),
+        showVideo: $("showVideo"),
+        exportStatus: null,
+        exportStage: null,
+        exportPercent: null,
+        exportProgressFill: null,
+        exportDetail: null,
+        resetWord: $("resetWord"),
+
+        audio: $("audio"),
+        vocalsAudio: $("vocalsAudio"),
+        musicAudio: $("musicAudio"),
+        playhead: $("playhead"),
+        waveCanvas: $("waveCanvas"),
+        wavePan: $("wavePan"),
+        wordLayer: $("wordLayer"),
 
       stemMix: $("stemMix"),
       rightDrawer: $("rightDrawer"),
