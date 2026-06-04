@@ -1602,6 +1602,10 @@
       return state.baseWords.length > 0 && !!state.waveform;
     }
 
+    function hasAudioLoaded() {
+      return Boolean(state.session?.project_id) && Number(ui.audio?.readyState || 0) >= 1;
+    }
+
     function formatClock(seconds) {
       const safe = Number.isFinite(seconds) ? Math.max(seconds, 0) : 0;
       const mins = Math.floor(safe / 60);
@@ -3393,23 +3397,30 @@
 
     function renderButtons() {
       const hasWords = state.resolvedWords.length > 0;
+      const hasAudio = hasAudioLoaded();
       const hasProject = Boolean(state.session?.project_id);
+      // Word-specific controls: need at least one word to operate on.
       [
-        ui.zoomOut,
-        ui.zoomIn,
-        ui.zoomReset,
         ui.prevWord,
         ui.nextWord,
         ui.lastWord,
         ui.placeWord,
-        ui.rewindStart,
-        ui.playPause,
-        ui.back2,
         ui.jumpWord,
         ui.exportMp4,
         ui.resetWord,
       ].forEach((button) => {
         button.disabled = !hasWords;
+      });
+      // Transport controls: work with audio only, no lyrics required.
+      [
+        ui.playPause,
+        ui.rewindStart,
+        ui.back2,
+        ui.zoomOut,
+        ui.zoomIn,
+        ui.zoomReset,
+      ].forEach((button) => {
+        button.disabled = !hasAudio;
       });
       if (ui.saveProject) {
         ui.saveProject.disabled = !hasProject;
@@ -3432,7 +3443,7 @@
         ui.playPause.textContent = ui.audio.paused ? "▶" : "⏸";
       }
       if (ui.stemMix) {
-        ui.stemMix.disabled = !hasWords || !state.stemMixAvailable;
+        ui.stemMix.disabled = !state.stemMixAvailable;
       }
       if (ui.rewindStart) {
         ui.rewindStart.textContent = "⏮";
