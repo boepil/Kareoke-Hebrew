@@ -2631,9 +2631,15 @@
         if (!Number.isFinite(word.start) || !Number.isFinite(word.end)) {
           return;
         }
+        // If _explicitEnd is set, use it as the effective end. Otherwise the
+        // saved `end` may be stale (e.g., the chain rule has not yet re-run
+        // when this is called from commitVisualStateToData) and would
+        // disagree with the post-chain end on the next reload, causing the
+        // visible end to shift after a save+reload round-trip.
+        const effectiveEnd = word._explicitEnd !== undefined ? word._explicitEnd : word.end;
         words[word.id] = {
           start: Number(word.start.toFixed(3)),
-          end: Number(word.end.toFixed(3)),
+          end: Number(effectiveEnd.toFixed(3)),
           ...(word._explicitEnd !== undefined && { explicit_end: Number(word._explicitEnd.toFixed(3)) })
         };
       });

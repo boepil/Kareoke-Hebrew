@@ -383,7 +383,7 @@ def _sanitize_override_body(raw: Mapping[str, Any]) -> dict[str, Any]:
             if not isinstance(override, Mapping):
                 raise ValueError(f"Override for '{entry_id}' must be an object")
             cleaned: dict[str, float] = {}
-            for key in ("start", "end", "offset", "stretch"):
+            for key in ("start", "end", "explicit_end", "offset", "stretch"):
                 value = override.get(key)
                 if value is None:
                     continue

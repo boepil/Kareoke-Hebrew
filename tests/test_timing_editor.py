@@ -138,6 +138,120 @@ def test_timing_editor_api_round_trip(tmp_path: Path) -> None:
     assert (temp_dir / "subtitles" / "lyrics.txt").read_text(encoding="utf-8") == "hello world\nmore words"
 
 
+def test_explicit_end_override_round_trips_through_save(tmp_path: Path) -> None:
+    """Bug 5: _sanitize_override_body must preserve explicit_end.
+
+    The front-end buildOverridesFromResolvedWords() sends explicit_end whenever
+    a word has a user-set _explicitEnd (right-edge drag or shared boundary).
+    The chain rule in syncResolvedWords Pass 2 uses _explicitEnd if defined
+    and otherwise re-derives the end, causing the visible end to shift on
+    reload if explicit_end is dropped on save.
+    """
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    input_dir = tmp_path / "input"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+    logs_dir.mkdir()
+    input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+
+    (temp_dir / "subtitles" / "subtitles_manifest.json").write_text(
+        json.dumps(
+            {
+                "lines": [
+                    {
+                        "id": "line_000",
+                        "text": "hello world",
+                        "start": 1.0,
+                        "end": 2.0,
+                        "word_ids": ["word_0000", "word_0001"],
+                    },
+                ],
+                "words": [
+                    {"id": "word_0000", "text": "hello", "start": 1.0, "end": 1.4, "line_index": 0},
+                    {"id": "word_0001", "text": "world", "start": 1.4, "end": 2.0, "line_index": 0},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (temp_dir / "state" / "timing_overrides.json").write_text(
+        json.dumps({"global_offset": 0.0, "lines": {}, "words": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _write_wav(temp_dir / "audio" / "audio.wav")
+
+    app = create_app(config_path)
+    app.testing = True
+    client = app.test_client()
+
+    save_response = client.post(
+        "/api/overrides",
+        json={
+            "global_offset": 0.0,
+            "placed_word_count": 1,
+            "lyrics_text": "hello world",
+            "lines": {},
+            "words": {
+                "word_0000": {
+                    "start": 1.0,
+                    "end": 1.45,
+                    "explicit_end": 1.45,
+                },
+            },
+        },
+    )
+    assert save_response.status_code == 200
+    saved_payload = save_response.get_json()
+    assert saved_payload["words"]["word_0000"]["explicit_end"] == 1.45
+    assert saved_payload["words"]["word_0000"]["end"] == 1.45
+
+    get_response = client.get("/api/overrides")
+    assert get_response.status_code == 200
+    overrides = get_response.get_json()
+    assert overrides["words"]["word_0000"]["explicit_end"] == 1.45
+
+    on_disk = json.loads((temp_dir / "state" / "timing_overrides.json").read_text(encoding="utf-8"))
+    assert on_disk["words"]["word_0000"]["explicit_end"] == 1.45
+
+
+def test_sanitize_override_body_drops_unknown_keys() -> None:
+    """Bug 5: explicit_end must be kept; unknown keys must still be dropped.
+
+    Regression guard so future whitelist changes don't accidentally re-introduce
+    the bug (e.g., by removing explicit_end again).
+    """
+    from timing_editor import _sanitize_override_body
+
+    payload = _sanitize_override_body(
+        {
+            "global_offset": 0.0,
+            "placed_word_count": 1,
+            "lyrics_text": "x",
+            "lines": {},
+            "words": {
+                "w1": {
+                    "start": 1.0,
+                    "end": 1.5,
+                    "explicit_end": 1.5,
+                    "junk_field": "should_be_dropped",
+                    "another_junk": 42,
+                },
+            },
+        }
+    )
+
+    assert payload["words"]["w1"]["explicit_end"] == 1.5
+    assert "junk_field" not in payload["words"]["w1"]
+    assert "another_junk" not in payload["words"]["w1"]
+
+
 def test_timing_editor_import_creates_manual_project(tmp_path: Path) -> None:
     temp_dir = tmp_path / "temp"
     output_dir = tmp_path / "output"
