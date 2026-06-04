@@ -1741,18 +1741,27 @@
       state.baseWords = [...manifestWords].sort((a, b) => a.index - b.index);
       state.placedWordCount = clamp(Number(state.overrides.placed_word_count || 0), 0, state.baseWords.length);
 
+      // Sanitize override times: persisted data may contain negative start times
+      // from older code versions or corrupted drags. Negative times are nonsensical
+      // for lyrics timing and cause the wave editor / live preview to filter out
+      // the affected words. Clamp to >= 0 so the views stay consistent.
+      const sanitizeOverrideTime = (value) => {
+        if (!Number.isFinite(value)) return value;
+        return value < 0 ? 0 : value;
+      };
+
       // Pass 1: Resolve starts and base ends
       const words = state.baseWords.map((word, index) => {
         const override = overrides[word.id] || {};
         const duration = getWordDuration(word);
         const isCommitted = index < state.placedWordCount;
         const start = isCommitted
-          ? (Number.isFinite(override.start) ? override.start : (Number.isFinite(word.start) ? word.start : 0))
+          ? sanitizeOverrideTime(Number.isFinite(override.start) ? override.start : (Number.isFinite(word.start) ? word.start : 0))
           : null;
         let end = isCommitted
-          ? (Number.isFinite(override.end) ? override.end : word.end)
+          ? sanitizeOverrideTime(Number.isFinite(override.end) ? override.end : word.end)
           : null;
-        const explicitEnd = isCommitted && Number.isFinite(override.explicit_end) ? override.explicit_end : undefined;
+        const explicitEnd = isCommitted && Number.isFinite(override.explicit_end) ? sanitizeOverrideTime(override.explicit_end) : undefined;
 
         return {
           ...word,
@@ -4566,7 +4575,12 @@
         if (baseWords.length > 0) {
           baseWords.forEach((baseWord, wi) => {
             const resolvedWord = state.resolvedWords.find(w => w.id === baseWord.id);
-            const isCommitted = resolvedWord && Number.isFinite(resolvedWord.start);
+            // Use isWordPlaced (placedWordCount) so the lyrics editor's
+            // "committed" highlight matches the wave editor / live preview.
+            // Previously this checked Number.isFinite(resolvedWord.start)
+            // which disagreed with the wave editor when a word had a finite
+            // start (e.g., negative) outside the placed prefix.
+            const isCommitted = resolvedWord && isWordPlaced(baseWord.index);
             const wordSpan = document.createElement("span");
             wordSpan.className = `lyrics-word ${isCommitted ? "committed" : "uncommitted"}`;
             wordSpan.textContent = baseWord.text;

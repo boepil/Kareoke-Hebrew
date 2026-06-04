@@ -339,8 +339,14 @@ def export_editor_project(
             w = dict(original_words[i])
             w_id = w["id"]
             if existing_overrides and w_id in existing_overrides.get("words", {}):
-                w["start"] = float(existing_overrides["words"][w_id]["start"])
-                w["end"] = float(existing_overrides["words"][w_id]["end"])
+                # Sanitize negative start/end times from corrupted persisted data.
+                # Negative times are nonsensical for lyrics timing and would cause
+                # all remaining words (shifted by start_time_offset) to also be
+                # negative, making the whole project invisible in the wave editor.
+                start_value = float(existing_overrides["words"][w_id]["start"])
+                end_value = float(existing_overrides["words"][w_id]["end"])
+                w["start"] = max(0.0, start_value)
+                w["end"] = max(w["start"] + 0.05, end_value)
             words.append(w)
 
         remaining_templates = original_words[placed_word_count:]
