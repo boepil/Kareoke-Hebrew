@@ -32,8 +32,8 @@ def _config(tmp_path: Path) -> dict[str, object]:
     input_dir.mkdir(parents=True)
     return {
         "paths": {
-            "temp_dir": "data",
-            "input_dir": "data/input",
+            "temp_dir": str(temp_dir),
+            "input_dir": str(input_dir),
         },
         "subtitle_builder": {
             "manifest_name": "subtitles_manifest.json",
