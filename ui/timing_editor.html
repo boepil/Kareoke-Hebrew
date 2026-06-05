@@ -2878,9 +2878,12 @@
           words: wordsInGroup,
           originalStart: originalGroupStart,
           originalEnd: originalGroupEnd,
-          // Current positions from resolvedWords (pre-drag state for THIS frame)
-          currentStart: nextWords[firstWord.index]?.start ?? originalGroupStart,
-          currentEnd: nextWords[lastWord.index]?.end ?? originalGroupEnd,
+          // Current positions use the pre-drag baseline (originalStart/originalEnd)
+          // rather than nextWords[...].end, which syncResolvedWords overwrites
+          // with vocalEndCapped on every frame, causing 1-frame lag in barrier
+          // detection and visible tremble/50% closure during drag.
+          currentStart: originalGroupStart,
+          currentEnd: originalGroupEnd,
           width: originalGroupEnd - originalGroupStart,
         };
       }).filter(Boolean);
@@ -3007,17 +3010,17 @@
       groupShiftsEnd[gIndex] = shift_g_end;
 
       for (let i = gIndex - 1; i >= 0; i--) {
-        const end_i = nextWords[sentenceGroups[i].words[sentenceGroups[i].words.length - 1].index]?.end ?? sentenceGroups[i].currentEnd;
-        const start_i1 = nextWords[sentenceGroups[i + 1].words[0].index]?.start ?? sentenceGroups[i + 1].currentStart;
-        const shift_i = Math.min(0, (start_i1 + groupShifts[i + 1]) - end_i - GAP_EPS);
+        const end_i = sentenceGroups[i].originalEnd + groupShifts[i];
+        const start_i1 = sentenceGroups[i + 1].originalStart + groupShifts[i + 1];
+        const shift_i = Math.min(0, start_i1 - end_i - GAP_EPS);
         groupShifts[i] = shift_i;
         groupShiftsEnd[i] = shift_i;
       }
 
       for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
-        const end_i1 = nextWords[sentenceGroups[i - 1].words[sentenceGroups[i - 1].words.length - 1].index]?.end ?? sentenceGroups[i - 1].currentEnd;
-        const start_i = nextWords[sentenceGroups[i].words[0].index]?.start ?? sentenceGroups[i].currentStart;
-        const shift_i = Math.max(0, (end_i1 + groupShiftsEnd[i - 1]) - start_i + GAP_EPS);
+        const end_i1 = sentenceGroups[i - 1].originalEnd + groupShiftsEnd[i - 1];
+        const start_i = sentenceGroups[i].originalStart + groupShifts[i];
+        const shift_i = Math.max(0, end_i1 - start_i + GAP_EPS);
         groupShifts[i] = shift_i;
         groupShiftsEnd[i] = shift_i;
       }
