@@ -2974,21 +2974,57 @@
       const E = [];
 
       if (isRigidDrag) {
-        // Cluster boundaries: leftmost original start, rightmost original end
-        const clusterLeft = sentenceGroups[cluster[0]].originalStart;
-        const clusterRight = sentenceGroups[cluster[cluster.length - 1]].originalEnd;
-        const clampedShift = clamp(delta, L_0 - clusterLeft, U_N_1 - clusterRight);
+        // Dynamic cluster growth: iteratively absorb any neighbor whose edge
+        // has been reached by the cluster's edge after applying the shift.
+        // Each iteration either grows the cluster by 1-2 or exits.
+        let clusterLeft = sentenceGroups[cluster[0]].originalStart;
+        let clusterRight = sentenceGroups[cluster[cluster.length - 1]].originalEnd;
+        let clampedShift = 0;
         
-        // Apply shift to every word in every group of the cluster
-        cluster.forEach((idx) => {
-          const g = sentenceGroups[idx];
-          g.words.forEach((w) => {
-            nextWords[w.index].start = Number((state.wordDrag.originalStarts[w.index] + clampedShift).toFixed(3));
-            if (w.id === g.words[g.words.length - 1].id) {
-              nextWords[w.index]._explicitEnd = Number((state.wordDrag.originalEnds[w.index] + clampedShift).toFixed(3));
-            }
+        while (true) {
+          clampedShift = clamp(delta, L_0 - clusterLeft, U_N_1 - clusterRight);
+          
+          // Apply shift to current cluster
+          cluster.forEach((idx) => {
+            const g = sentenceGroups[idx];
+            g.words.forEach((w) => {
+              nextWords[w.index].start = Number((state.wordDrag.originalStarts[w.index] + clampedShift).toFixed(3));
+              if (w.id === g.words[g.words.length - 1].id) {
+                nextWords[w.index]._explicitEnd = Number((state.wordDrag.originalEnds[w.index] + clampedShift).toFixed(3));
+              }
+            });
           });
-        });
+
+          // Check if cluster should grow
+          const newLeftEnd = sentenceGroups[cluster[0]].originalEnd + clampedShift;
+          const newRightStart = sentenceGroups[cluster[cluster.length - 1]].originalStart + clampedShift;
+          let grew = false;
+
+          // Absorb left neighbor if reached
+          if (cluster[0] > 0) {
+            const prevIdx = cluster[0] - 1;
+            const prevEnd = sentenceGroups[prevIdx].originalEnd;
+            if (newLeftEnd >= prevEnd - GAP_EPS) {
+              cluster.unshift(prevIdx);
+              clusterLeft = sentenceGroups[prevIdx].originalStart;
+              grew = true;
+            }
+          }
+
+          // Absorb right neighbor if reached
+          const rightmostIdx = cluster[cluster.length - 1];
+          if (rightmostIdx < sentenceGroups.length - 1) {
+            const nextIdx = rightmostIdx + 1;
+            const nextStart = sentenceGroups[nextIdx].originalStart;
+            if (newRightStart <= nextStart + GAP_EPS) {
+              cluster.push(nextIdx);
+              clusterRight = sentenceGroups[nextIdx].originalEnd;
+              grew = true;
+            }
+          }
+
+          if (!grew) break;
+        }
 
         shift_g = clampedShift;
         shift_g_end = clampedShift;
