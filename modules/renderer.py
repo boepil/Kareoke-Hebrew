@@ -22,6 +22,8 @@ import yaml
 
 LOGGER = logging.getLogger(__name__)
 
+AMBIENT_LOOP_PATH = Path(r"D:\_PROJECTS\My\ai\Kareoke_Hebrew\Ambient Loop.mp4")
+
 
 def _audio_duration_seconds(path: Path) -> float:
     if path.suffix.lower() != ".wav":
@@ -209,10 +211,10 @@ def build_render_command(
         "-hide_banner",
         "-loglevel",
         "error",
-        "-f",
-        "lavfi",
+        "-stream_loop",
+        "-1",
         "-i",
-        f"color=c={background_color}:s={video_size}:r={frame_rate}",
+        str(AMBIENT_LOOP_PATH),
         "-i",
         str(no_vocals_audio),
         "-map",
@@ -367,12 +369,20 @@ def _build_image_overlay_filter_script(
     script_path: Path,
     y_center_expr: str,
     fade_seconds: float = 0.5,
+    video_size: str = "1920x1080",
+    frame_rate: str = "30",
 ) -> tuple[list[str], str]:
+    """Build the FFmpeg filter script for overlaying lyrics and images."""
     input_args: list[str] = []
     filter_lines: list[str] = []
-    previous_label = "[0:v]"
-
+    
+    # Normalize background video to target size and frame rate
+    width, height = video_size.lower().split("x")
+    filter_lines.append(f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={frame_rate}[bg]")
+    previous_label = "[bg]"
+    
     y_bottom_expr = f"({y_center_expr})+h+28"
+
     y_top_expr = f"({y_center_expr})-h-28"
     slide_dur = 0.4
     
@@ -598,17 +608,24 @@ def render_video(
 
         script_path = subtitles_path.with_name("subtitle_overlay.ffscript")
         fade_seconds = max(float(subtitle_settings.get("sentence_preroll_seconds", 1.0)), 0.0)
-        image_inputs, video_label = _build_image_overlay_filter_script(events, script_path, y_expression, fade_seconds)
+        image_inputs, video_label = _build_image_overlay_filter_script(
+            events, 
+            script_path, 
+            y_expression, 
+            fade_seconds, 
+            video_size, 
+            frame_rate
+        )
         command = [
             ffmpeg_path,
             "-y",
             "-hide_banner",
             "-loglevel",
             "error",
-            "-f",
-            "lavfi",
+            "-stream_loop",
+            "-1",
             "-i",
-            f"color=c={background_color}:s={video_size}:r={frame_rate}",
+            str(AMBIENT_LOOP_PATH),
             "-i",
             str(audio_path),
             *image_inputs,
