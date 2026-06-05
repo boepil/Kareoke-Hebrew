@@ -2895,11 +2895,30 @@
       const k = groupWords.findIndex((w) => w.id === word.id);
       const N = groupWords.length;
 
-      // Compute barriers using CURRENT positions — re-evaluated every frame for instant contact
+      // Build cluster: the dragged group + any adjacent groups (gap <= GAP_EPS).
+      // Adjacent groups behave as one rigid block during drag. When the gap
+      // opens (drag pulls away on the next frame), the cluster shrinks back
+      // to just the dragged group.
       const GAP_EPS = 0.001;
-      let p = -1;
+      const cluster = [gIndex];
       for (let i = gIndex - 1; i >= 0; i--) {
-        const gap = sentenceGroups[i + 1].currentStart - sentenceGroups[i].currentEnd;
+        const gap = sentenceGroups[i + 1].originalStart - sentenceGroups[i].originalEnd;
+        if (gap <= GAP_EPS) {
+          cluster.unshift(i);
+        } else break;
+      }
+      for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
+        const gap = sentenceGroups[i].originalStart - sentenceGroups[i - 1].originalEnd;
+        if (gap <= GAP_EPS) {
+          cluster.push(i);
+        } else break;
+      }
+      const isCluster = cluster.length > 1;
+
+      // Find left barrier: first group left of the cluster with a real gap (> GAP_EPS)
+      let p = -1;
+      for (let i = cluster[0] - 1; i >= 0; i--) {
+        const gap = sentenceGroups[i + 1].originalStart - sentenceGroups[i].originalEnd;
         if (gap > GAP_EPS) {
           p = i;
           break;
@@ -2914,13 +2933,14 @@
         barrierLeft = 0;
         L_0 = 0;
       }
-      for (let i = p + 1; i < gIndex; i++) {
+      for (let i = p + 1; i < cluster[0]; i++) {
         L_0 += sentenceGroups[i].width + GAP_EPS;
       }
 
+      // Find right barrier: first group right of the cluster with a real gap (> GAP_EPS)
       let q = sentenceGroups.length;
-      for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
-        const gap = sentenceGroups[i].currentStart - sentenceGroups[i - 1].currentEnd;
+      for (let i = cluster[cluster.length - 1] + 1; i < sentenceGroups.length; i++) {
+        const gap = sentenceGroups[i].originalStart - sentenceGroups[i - 1].originalEnd;
         if (gap > GAP_EPS) {
           q = i;
           break;
@@ -2935,30 +2955,39 @@
         barrierRight = songDuration;
         U_N_1 = songDuration;
       }
-      for (let i = q - 1; i > gIndex; i--) {
+      for (let i = q - 1; i > cluster[cluster.length - 1]; i--) {
         U_N_1 -= (sentenceGroups[i].width + GAP_EPS);
       }
 
       // Check if group is rigidly dragged (N === 1 or outermost with no internal slack)
+      // For clusters spanning multiple sentence groups, force rigid behavior
+      // (no internal slack propagation across sentence-group boundaries).
       const isOutermost = (k === 0 || k === N - 1);
       const originalGroupWidth = G_g.originalEnd - G_g.originalStart;
       const minimumPossibleGroupWidth = N * minWidth;
       const hasNoSlack = (originalGroupWidth - minimumPossibleGroupWidth) <= 0.01;
       
-      const isRigidDrag = (N === 1) || (isOutermost && hasNoSlack);
+      const isRigidDrag = isCluster || (N === 1) || (isOutermost && hasNoSlack);
 
       let shift_g = 0;
       let shift_g_end = 0;
       const E = [];
 
       if (isRigidDrag) {
-        const clampedShift = clamp(delta, L_0 - G_g.originalStart, U_N_1 - G_g.originalEnd);
+        // Cluster boundaries: leftmost original start, rightmost original end
+        const clusterLeft = sentenceGroups[cluster[0]].originalStart;
+        const clusterRight = sentenceGroups[cluster[cluster.length - 1]].originalEnd;
+        const clampedShift = clamp(delta, L_0 - clusterLeft, U_N_1 - clusterRight);
         
-        groupWords.forEach((g) => {
-          nextWords[g.index].start = Number((state.wordDrag.originalStarts[g.index] + clampedShift).toFixed(3));
-          if (g.index === groupWords[N - 1].index) {
-            nextWords[g.index]._explicitEnd = Number((state.wordDrag.originalEnds[g.index] + clampedShift).toFixed(3));
-          }
+        // Apply shift to every word in every group of the cluster
+        cluster.forEach((idx) => {
+          const g = sentenceGroups[idx];
+          g.words.forEach((w) => {
+            nextWords[w.index].start = Number((state.wordDrag.originalStarts[w.index] + clampedShift).toFixed(3));
+            if (w.id === g.words[g.words.length - 1].id) {
+              nextWords[w.index]._explicitEnd = Number((state.wordDrag.originalEnds[w.index] + clampedShift).toFixed(3));
+            }
+          });
         });
 
         shift_g = clampedShift;
@@ -3004,12 +3033,16 @@
 
       // Propagate pushing to other sentence groups (using current positions)
       const groupShifts = new Array(sentenceGroups.length).fill(0);
-      groupShifts[gIndex] = shift_g;
-      
       const groupShiftsEnd = new Array(sentenceGroups.length).fill(0);
-      groupShiftsEnd[gIndex] = shift_g_end;
+      
+      // Set initial shift for the entire cluster (same shift applied to all)
+      cluster.forEach((idx) => {
+        groupShifts[idx] = shift_g;
+        groupShiftsEnd[idx] = shift_g_end;
+      });
 
-      for (let i = gIndex - 1; i >= 0; i--) {
+      // Propagate left of the cluster
+      for (let i = cluster[0] - 1; i >= 0; i--) {
         const end_i = sentenceGroups[i].originalEnd + groupShifts[i];
         const start_i1 = sentenceGroups[i + 1].originalStart + groupShifts[i + 1];
         const shift_i = Math.min(0, start_i1 - end_i - GAP_EPS);
@@ -3017,7 +3050,8 @@
         groupShiftsEnd[i] = shift_i;
       }
 
-      for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
+      // Propagate right of the cluster
+      for (let i = cluster[cluster.length - 1] + 1; i < sentenceGroups.length; i++) {
         const end_i1 = sentenceGroups[i - 1].originalEnd + groupShiftsEnd[i - 1];
         const start_i = sentenceGroups[i].originalStart + groupShifts[i];
         const shift_i = Math.max(0, end_i1 - start_i + GAP_EPS);
@@ -3026,7 +3060,7 @@
       }
 
       sentenceGroups.forEach((g, i) => {
-        if (i === gIndex) return;
+        if (cluster.includes(i)) return;  // already handled above
         const shift = groupShifts[i];
         g.words.forEach((w) => {
           nextWords[w.index].start = Number((state.wordDrag.originalStarts[w.index] + shift).toFixed(3));
