@@ -1954,7 +1954,7 @@
         };
       });
 
-      // Pass 2: Refine end times based on the "Chained Timing" and "2s Padding" rules
+      // Pass 2: Refine end times based on the "Chained Timing" rules
       state.resolvedWords = words.map((word, index) => {
         if (word.start === null) return word;
 
@@ -1976,31 +1976,27 @@
         
         // Cap natural vocal duration at 2.0 seconds to prevent tails extending into silence
         const vocalEndCapped = word.start + Math.min(word.duration, 2.0);
-        let finalEnd = vocalEndCapped;
 
+        // Last word of the song gets 2.0s visual tail (nothing after it to chain to)
         if (isLastWord) {
-          // Rule: Last word of song gets 2.0s padding
-          finalEnd = vocalEndCapped + 2.0;
-        } else if (isNextPlaced) {
-          const nextStart = nextWord.start;
-          const gap = nextStart - vocalEndCapped;
-
-          if (word.isLineEnd || gap > 2.0) {
-            // Rule: End of line or large gap gets 2.0s padding
-            finalEnd = Math.min(vocalEndCapped + 2.0, nextStart);
-          } else {
-            // Rule: Chained presentation
-            finalEnd = nextStart;
-          }
-        } else {
-          if (word.isLineEnd) {
-            finalEnd = vocalEndCapped + 2.0;
-          }
+          return {
+            ...word,
+            end: Number((vocalEndCapped + 2.0).toFixed(3)),
+          };
         }
 
+        // Next word is placed: chain gaplessly to its start
+        if (isNextPlaced) {
+          return {
+            ...word,
+            end: Number(nextWord.start.toFixed(3)),
+          };
+        }
+
+        // No explicit end, not last, no next placed: use capped vocal end
         return {
           ...word,
-          end: Number(finalEnd.toFixed(3)),
+          end: Number(vocalEndCapped.toFixed(3)),
         };
       });
 
@@ -3154,24 +3150,20 @@
       const nextWord = state.resolvedWords[index + 1];
       const isLastWord = index === state.resolvedWords.length - 1;
       const isNextPlaced = nextWord && isWordPlaced(index + 1);
+      // Last word of the song gets 2.0s visual tail
       if (isLastWord) {
         return vocalEndCapped + 2.0;
       }
+      // Next word is placed: chain gaplessly to its start
       if (isNextPlaced) {
         const nextStart = getDisplayStartForWord(index + 1);
         if (!Number.isFinite(nextStart)) {
           return vocalEndCapped + 2.0;
         }
-        const gap = nextStart - vocalEndCapped;
-        if (word.isLineEnd || gap > 2.0) {
-          return Math.min(vocalEndCapped + 2.0, nextStart);
-        }
         return nextStart;
       }
-      if (word.isLineEnd) {
-        return vocalEndCapped + 2.0;
-      }
-      return vocalEnd;
+      // Unplaced or no next: use capped vocal end
+      return vocalEndCapped;
     }
 
     function getActivePreviewWord() {
