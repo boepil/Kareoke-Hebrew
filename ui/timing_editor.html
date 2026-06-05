@@ -2897,10 +2897,11 @@
       const N = groupWords.length;
 
       // Compute barriers using CURRENT positions — re-evaluated every frame for instant contact
+      const GAP_EPS = 0.001;
       let p = -1;
       for (let i = gIndex - 1; i >= 0; i--) {
         const gap = sentenceGroups[i + 1].currentStart - sentenceGroups[i].currentEnd;
-        if (gap > 0.05) {
+        if (gap > GAP_EPS) {
           p = i;
           break;
         }
@@ -2909,19 +2910,19 @@
       let L_0 = 0;
       if (p >= 0) {
         barrierLeft = sentenceGroups[p].currentEnd;
-        L_0 = barrierLeft + 0.05;
+        L_0 = barrierLeft + GAP_EPS;
       } else {
         barrierLeft = 0;
         L_0 = 0;
       }
       for (let i = p + 1; i < gIndex; i++) {
-        L_0 += sentenceGroups[i].width + 0.05;
+        L_0 += sentenceGroups[i].width + GAP_EPS;
       }
 
       let q = sentenceGroups.length;
       for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
         const gap = sentenceGroups[i].currentStart - sentenceGroups[i - 1].currentEnd;
-        if (gap > 0.05) {
+        if (gap > GAP_EPS) {
           q = i;
           break;
         }
@@ -2930,13 +2931,13 @@
       let U_N_1 = songDuration;
       if (q < sentenceGroups.length) {
         barrierRight = sentenceGroups[q].currentStart;
-        U_N_1 = barrierRight - 0.05;
+        U_N_1 = barrierRight - GAP_EPS;
       } else {
         barrierRight = songDuration;
         U_N_1 = songDuration;
       }
       for (let i = q - 1; i > gIndex; i--) {
-        U_N_1 -= (sentenceGroups[i].width + 0.05);
+        U_N_1 -= (sentenceGroups[i].width + GAP_EPS);
       }
 
       // Check if group is rigidly dragged (N === 1 or outermost with no internal slack)
@@ -3012,7 +3013,7 @@
       for (let i = gIndex - 1; i >= 0; i--) {
         const end_i = nextWords[sentenceGroups[i].words[sentenceGroups[i].words.length - 1].index]?.end ?? sentenceGroups[i].currentEnd;
         const start_i1 = nextWords[sentenceGroups[i + 1].words[0].index]?.start ?? sentenceGroups[i + 1].currentStart;
-        const shift_i = Math.min(0, (start_i1 + groupShifts[i + 1]) - end_i - 0.05);
+        const shift_i = Math.min(0, (start_i1 + groupShifts[i + 1]) - end_i - GAP_EPS);
         groupShifts[i] = shift_i;
         groupShiftsEnd[i] = shift_i;
       }
@@ -3020,7 +3021,7 @@
       for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
         const end_i1 = nextWords[sentenceGroups[i - 1].words[sentenceGroups[i - 1].words.length - 1].index]?.end ?? sentenceGroups[i - 1].currentEnd;
         const start_i = nextWords[sentenceGroups[i].words[0].index]?.start ?? sentenceGroups[i].currentStart;
-        const shift_i = Math.max(0, (end_i1 + groupShiftsEnd[i - 1]) - start_i + 0.05);
+        const shift_i = Math.max(0, (end_i1 + groupShiftsEnd[i - 1]) - start_i + GAP_EPS);
         groupShifts[i] = shift_i;
         groupShiftsEnd[i] = shift_i;
       }
