@@ -2997,7 +2997,7 @@
 
           // Check if cluster should grow
           const newLeftEnd = sentenceGroups[cluster[0]].originalEnd + clampedShift;
-          const newRightStart = sentenceGroups[cluster[cluster.length - 1]].originalStart + clampedShift;
+          const newRightEdge = sentenceGroups[cluster[cluster.length - 1]].originalEnd + clampedShift;
           let grew = false;
 
           // Absorb left neighbor if reached
@@ -3016,7 +3016,7 @@
           if (rightmostIdx < sentenceGroups.length - 1) {
             const nextIdx = rightmostIdx + 1;
             const nextStart = sentenceGroups[nextIdx].originalStart;
-            if (newRightStart <= nextStart + GAP_EPS) {
+            if (newRightEdge >= nextStart - GAP_EPS) {
               cluster.push(nextIdx);
               clusterRight = sentenceGroups[nextIdx].originalEnd;
               grew = true;
