@@ -1635,6 +1635,7 @@
     const CONTACT_THRESHOLD_MS = 50;
     const DEFAULT_ZOOM_SECONDS = 18;
     const MIN_ZOOM_SECONDS = 0.35;
+    const SENTENCE_GAP = 0.2;
     const MIN_WORD_ORDER_GAP = 0.001;
     const PLAYHEAD_DRAG_SENSITIVITY = 0.2;
     const LYRICS_SOURCE_DEFAULT_URL = "https://shironet.mako.co.il/";
@@ -1985,11 +1986,14 @@
           };
         }
 
-        // Next word is placed: chain gaplessly to its start
+        // Next word is placed: gapless chain (same line) or sentence gap (different line)
         if (isNextPlaced) {
+          const end = nextWord.line_index !== word.line_index
+            ? Math.min(vocalEndCapped + SENTENCE_GAP, nextWord.start)
+            : nextWord.start;
           return {
             ...word,
-            end: Number(nextWord.start.toFixed(3)),
+            end: Number(end.toFixed(3)),
           };
         }
 
@@ -3227,13 +3231,16 @@
       if (isLastWord) {
         return vocalEndCapped + 2.0;
       }
-      // Next word is placed: chain gaplessly to its start
+      // Next word is placed: gapless chain (same line) or sentence gap (different line)
       if (isNextPlaced) {
         const nextStart = getDisplayStartForWord(index + 1);
         if (!Number.isFinite(nextStart)) {
           return vocalEndCapped + 2.0;
         }
-        return nextStart;
+        if (word.line_index === nextWord.line_index) {
+          return nextStart; // same line: gapless
+        }
+        return Math.min(vocalEndCapped + SENTENCE_GAP, nextStart); // sentence gap
       }
       // Unplaced or no next: use capped vocal end
       return vocalEndCapped;
