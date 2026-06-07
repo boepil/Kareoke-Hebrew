@@ -2976,7 +2976,7 @@
       const minimumPossibleGroupWidth = N * minWidth;
       const hasNoSlack = (originalGroupWidth - minimumPossibleGroupWidth) <= 0.01;
       
-      const isRigidDrag = isCluster || (N === 1) || (isOutermost && hasNoSlack);
+      const isRigidDrag = isCluster || (N === 1) || isOutermost;
 
       let shift_g = 0;
       let shift_g_end = 0;
