@@ -2899,21 +2899,26 @@
       const k = groupWords.findIndex((w) => w.id === word.id);
       const N = groupWords.length;
 
-      // Build cluster: the dragged group + any adjacent groups (gap <= GAP_EPS).
-      // Adjacent groups behave as one rigid block during drag. When the gap
-      // opens (drag pulls away on the next frame), the cluster shrinks back
-      // to just the dragged group.
+      // Phase 3: determine drag direction from cumulative delta.
+      // Dragging away from an adjacent neighbor excludes that neighbor from the
+      // cluster (directional ungrouping).
       const GAP_EPS = 0.001;
+      const dragDirection = delta > 0.001 ? 'right' : delta < -0.001 ? 'left' : 'none';
+      const excludeRight = (k === N - 1 && dragDirection === 'left');
+      const excludeLeft = (k === 0 && dragDirection === 'right');
+
+      // Build cluster: the dragged group + any adjacent groups (gap <= GAP_EPS)
+      // that are NOT excluded by directional ungrouping.
       const cluster = [gIndex];
       for (let i = gIndex - 1; i >= 0; i--) {
         const gap = sentenceGroups[i + 1].originalStart - sentenceGroups[i].originalEnd;
-        if (gap <= GAP_EPS) {
+        if (gap <= GAP_EPS && !excludeLeft) {
           cluster.unshift(i);
         } else break;
       }
       for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
         const gap = sentenceGroups[i].originalStart - sentenceGroups[i - 1].originalEnd;
-        if (gap <= GAP_EPS) {
+        if (gap <= GAP_EPS && !excludeRight) {
           cluster.push(i);
         } else break;
       }
@@ -3004,8 +3009,8 @@
           const newRightEdge = sentenceGroups[cluster[cluster.length - 1]].originalEnd + clampedShift;
           let grew = false;
 
-          // Absorb left neighbor if reached
-          if (cluster[0] > 0) {
+          // Absorb left neighbor if reached (and not excluded by directional ungrouping)
+          if (cluster[0] > 0 && !excludeLeft) {
             const prevIdx = cluster[0] - 1;
             const prevEnd = sentenceGroups[prevIdx].originalEnd;
             if (newLeftEnd >= prevEnd - GAP_EPS) {
@@ -3015,9 +3020,9 @@
             }
           }
 
-          // Absorb right neighbor if reached
+          // Absorb right neighbor if reached (and not excluded by directional ungrouping)
           const rightmostIdx = cluster[cluster.length - 1];
-          if (rightmostIdx < sentenceGroups.length - 1) {
+          if (rightmostIdx < sentenceGroups.length - 1 && !excludeRight) {
             const nextIdx = rightmostIdx + 1;
             const nextStart = sentenceGroups[nextIdx].originalStart;
             if (newRightEdge >= nextStart - GAP_EPS) {
