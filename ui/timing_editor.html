@@ -2882,12 +2882,10 @@
           words: wordsInGroup,
           originalStart: originalGroupStart,
           originalEnd: originalGroupEnd,
-          // Current positions use the pre-drag baseline (originalStart/originalEnd)
-          // rather than nextWords[...].end, which syncResolvedWords overwrites
-          // with vocalEndCapped on every frame, causing 1-frame lag in barrier
-          // detection and visible tremble/50% closure during drag.
-          currentStart: originalGroupStart,
-          currentEnd: originalGroupEnd,
+          // Use the latest resolved positions so the barrier reflects prior
+          // propagation pushes, preventing snap-back after cluster absorption.
+          currentStart: state.resolvedWords[firstWord.index].start,
+          currentEnd: state.resolvedWords[lastWord.index].end,
           width: originalGroupEnd - originalGroupStart,
         };
       }).filter(Boolean);
@@ -2900,141 +2898,48 @@
       const N = groupWords.length;
 
       // Phase 3: determine drag direction from cumulative delta.
-      // Dragging away from an adjacent neighbor excludes that neighbor from the
-      // cluster (directional ungrouping).
       const GAP_EPS = 0.001;
-      const dragDirection = delta > 0.001 ? 'right' : delta < -0.001 ? 'left' : 'none';
-      const excludeRight = (k === N - 1 && dragDirection === 'left');
-      const excludeLeft = (k === 0 && dragDirection === 'right');
 
-      // Build cluster: the dragged group + any adjacent groups (gap <= GAP_EPS)
-      // that are NOT excluded by directional ungrouping.
+      // Plan B: The cluster is always just the dragged group itself.
       const cluster = [gIndex];
-      for (let i = gIndex - 1; i >= 0; i--) {
-        const gap = sentenceGroups[i + 1].originalStart - sentenceGroups[i].originalEnd;
-        if (gap <= GAP_EPS && !excludeLeft) {
-          cluster.unshift(i);
-        } else break;
-      }
-      for (let i = gIndex + 1; i < sentenceGroups.length; i++) {
-        const gap = sentenceGroups[i].originalStart - sentenceGroups[i - 1].originalEnd;
-        if (gap <= GAP_EPS && !excludeRight) {
-          cluster.push(i);
-        } else break;
-      }
-      const isCluster = cluster.length > 1;
 
-      // Find left barrier: first group left of the cluster with a real gap (> GAP_EPS)
-      let p = -1;
-      for (let i = cluster[0] - 1; i >= 0; i--) {
-        const gap = sentenceGroups[i + 1].originalStart - sentenceGroups[i].originalEnd;
-        if (gap > GAP_EPS) {
-          p = i;
-          break;
-        }
-      }
-      let barrierLeft = 0;
+      // Calculate absolute left barrier L_0 for group gIndex:
+      // Minimum start position is the sum of widths of all groups to the left.
       let L_0 = 0;
-      if (p >= 0) {
-        barrierLeft = sentenceGroups[p].currentEnd;
-        L_0 = barrierLeft + GAP_EPS;
-      } else {
-        barrierLeft = 0;
-        L_0 = 0;
-      }
-      for (let i = p + 1; i < cluster[0]; i++) {
+      for (let i = 0; i < gIndex; i++) {
         L_0 += sentenceGroups[i].width + GAP_EPS;
       }
 
-      // Find right barrier: first group right of the cluster with a real gap (> GAP_EPS)
-      let q = sentenceGroups.length;
-      for (let i = cluster[cluster.length - 1] + 1; i < sentenceGroups.length; i++) {
-        const gap = sentenceGroups[i].originalStart - sentenceGroups[i - 1].originalEnd;
-        if (gap > GAP_EPS) {
-          q = i;
-          break;
-        }
-      }
-      let barrierRight = songDuration;
+      // Calculate absolute right barrier U_N_1 for group gIndex:
+      // Maximum end position is songDuration minus the sum of widths of all groups to the right.
       let U_N_1 = songDuration;
-      if (q < sentenceGroups.length) {
-        barrierRight = sentenceGroups[q].currentStart;
-        U_N_1 = barrierRight - GAP_EPS;
-      } else {
-        barrierRight = songDuration;
-        U_N_1 = songDuration;
-      }
-      for (let i = q - 1; i > cluster[cluster.length - 1]; i--) {
+      for (let i = sentenceGroups.length - 1; i > gIndex; i--) {
         U_N_1 -= (sentenceGroups[i].width + GAP_EPS);
       }
 
       // Check if group is rigidly dragged (N === 1 or outermost with no internal slack)
-      // For clusters spanning multiple sentence groups, force rigid behavior
-      // (no internal slack propagation across sentence-group boundaries).
       const isOutermost = (k === 0 || k === N - 1);
       const originalGroupWidth = G_g.originalEnd - G_g.originalStart;
       const minimumPossibleGroupWidth = N * minWidth;
       const hasNoSlack = (originalGroupWidth - minimumPossibleGroupWidth) <= 0.01;
       
-      const isRigidDrag = isCluster || (N === 1) || isOutermost;
+      const isRigidDrag = (N === 1) || (isOutermost && hasNoSlack);
 
       let shift_g = 0;
       let shift_g_end = 0;
       const E = [];
 
       if (isRigidDrag) {
-        // Dynamic cluster growth: iteratively absorb any neighbor whose edge
-        // has been reached by the cluster's edge after applying the shift.
-        // Each iteration either grows the cluster by 1-2 or exits.
-        let clusterLeft = sentenceGroups[cluster[0]].originalStart;
-        let clusterRight = sentenceGroups[cluster[cluster.length - 1]].originalEnd;
-        let clampedShift = 0;
+        // Simple rigid drag of the group clamped to absolute barriers
+        const clampedShift = clamp(delta, L_0 - G_g.originalStart, U_N_1 - G_g.originalEnd);
         
-        while (true) {
-          clampedShift = clamp(delta, L_0 - clusterLeft, U_N_1 - clusterRight);
-          
-          // Apply shift to current cluster
-          cluster.forEach((idx) => {
-            const g = sentenceGroups[idx];
-            g.words.forEach((w) => {
-              nextWords[w.index].start = Number((state.wordDrag.originalStarts[w.index] + clampedShift).toFixed(3));
-              if (w.id === g.words[g.words.length - 1].id) {
-                nextWords[w.index]._explicitEnd = Number((state.wordDrag.originalEnds[w.index] + clampedShift).toFixed(3));
-              }
-            });
-          });
-
-          // Check if cluster should grow
-          const newLeftEnd = sentenceGroups[cluster[0]].originalEnd + clampedShift;
-          const newRightEdge = sentenceGroups[cluster[cluster.length - 1]].originalEnd + clampedShift;
-          let grew = false;
-
-          // Absorb left neighbor if reached (and not excluded by directional ungrouping)
-          if (cluster[0] > 0 && !excludeLeft) {
-            const prevIdx = cluster[0] - 1;
-            const prevEnd = sentenceGroups[prevIdx].originalEnd;
-            if (newLeftEnd >= prevEnd - GAP_EPS) {
-              cluster.unshift(prevIdx);
-              clusterLeft = sentenceGroups[prevIdx].originalStart;
-              grew = true;
-            }
+        G_g.words.forEach((w) => {
+          nextWords[w.index].start = Number((state.wordDrag.originalStarts[w.index] + clampedShift).toFixed(3));
+          if (w.id === G_g.words[G_g.words.length - 1].id) {
+            nextWords[w.index]._explicitEnd = Number((state.wordDrag.originalEnds[w.index] + clampedShift).toFixed(3));
           }
-
-          // Absorb right neighbor if reached (and not excluded by directional ungrouping)
-          const rightmostIdx = cluster[cluster.length - 1];
-          if (rightmostIdx < sentenceGroups.length - 1 && !excludeRight) {
-            const nextIdx = rightmostIdx + 1;
-            const nextStart = sentenceGroups[nextIdx].originalStart;
-            if (newRightEdge >= nextStart - GAP_EPS) {
-              cluster.push(nextIdx);
-              clusterRight = sentenceGroups[nextIdx].originalEnd;
-              grew = true;
-            }
-          }
-
-          if (!grew) break;
-        }
-
+        });
+        
         shift_g = clampedShift;
         shift_g_end = clampedShift;
       } else {
