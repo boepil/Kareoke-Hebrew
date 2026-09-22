@@ -4391,7 +4391,10 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         project_paths = current_paths()
         with app.config["EXPORT_LOCK"]:
             job = dict(app.config["EXPORT_JOB"])
-        if not job.get("output_video"):
+        # Do not expose a stale or partially-written file while FFmpeg is
+        # still running.  The output path is published by run_export_job only
+        # after render_video returns successfully.
+        if job.get("status") == "idle" and not job.get("output_video"):
             fallback_output = _default_output_video_path(project_paths)
             if fallback_output.exists():
                 job["output_video"] = str(fallback_output)
@@ -4440,6 +4443,14 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         output_path = _resolve_output_video_path(base_paths, project_name)
         if not output_path:
             output_path = _default_output_video_path(current_paths())
+        with app.config["EXPORT_LOCK"]:
+            export_job = dict(app.config["EXPORT_JOB"])
+        active_project = str(export_job.get("project_id") or "").strip()
+        requested_project = str(project_name or "").strip()
+        if export_job.get("status") in {"queued", "building_subtitles", "rendering"} and (
+            not requested_project or requested_project == active_project
+        ):
+            return _json_response({"available": False, "rendering": True})
         return _json_response({"available": output_path.exists()})
 
     @app.get("/graph")

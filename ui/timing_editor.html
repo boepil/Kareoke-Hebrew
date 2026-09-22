@@ -1391,7 +1391,18 @@
       font-size: 14px;
       line-height: 1.5;
     }
-    button { min-height: 44px; height: 44px; border-radius: 12px; border-width: 1px; font-size: 13px; }
+    button {
+      min-height: 44px;
+      height: 44px;
+      border-radius: 12px;
+      border-width: 1px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -.01em;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     input, select, textarea { min-height: 44px; border-radius: 12px; border-width: 1px; }
     #zoomOut, #zoomIn, #zoomReset { min-height: 44px; height: 44px; }
     .app-topbar { display: flex; align-items: center; gap: 14px; min-height: 62px; margin-bottom: 14px; direction: rtl; }
@@ -1432,7 +1443,7 @@
     .project-input-arrow { right: 12px; }
     .project-toggle, .drawer-toggle { position: static; transform: none; width: 40px; min-width: 40px; height: 40px; padding: 0; border: 1px solid var(--border-2); border-radius: 10px; background: rgba(255,255,255,.035); color: var(--text-2); font-size: 20px; }
     .project-toggle:hover, .drawer-toggle:hover { background: var(--bg-input-hover); color: var(--text); }
-    .btn-primary, .btn-danger, .btn-outline { min-height: 44px; height: 44px; border-radius: 12px; border-width: 1px; font-size: 13px; }
+    .btn-primary, .btn-danger, .btn-outline { min-height: 44px; height: 44px; border-radius: 12px; border-width: 1px; font-size: 14px; font-weight: 700; }
     .btn-primary { background: var(--accent); border-color: var(--accent); color: #241612; }
     .btn-primary:hover:not(:disabled) { background: #ffb18e; border-color: #ffb18e; }
     .btn-danger { color: #ff777c; border-color: rgba(255,119,124,.35); background: rgba(255,119,124,.06); }
@@ -1486,6 +1497,9 @@
     .drawer-footer { margin-top: auto; padding: 12px 14px 14px; border-top: 1px solid var(--border); }
     .drawer-footer .btn-primary { background: var(--green); border-color: var(--green); color: #102419; }
     .drawer-footer .btn-primary:hover:not(:disabled) { background: #a0e2b5; border-color: #a0e2b5; }
+    .drawer #searchLyrics,
+    .drawer #useLyricsBtn,
+    .drawer #tryNextSourceBtn { font-size: 13px; padding-inline: 10px; }
     .drawer.collapsed .drawer-tab { display: none; }
     .drawer.collapsed .drawer-tabs { display: block; width: 40px; padding: 0; border: 0; background: transparent; }
     .drawer.collapsed .drawer-body, .drawer.collapsed .drawer-footer { display: none; }
@@ -1654,7 +1668,7 @@
               <div class="toolbar-left">
                 <button class="secondary" id="jumpWord">סנכרון</button>
                 <button class="primary" id="placeWord">אישור מילה</button>
-                <button class="amber-outline" id="resetWord">איפוס →</button>
+                <button class="amber-outline" id="resetWord">איפוס ←</button>
                 <div class="btn-group">
                   <button class="secondary" id="prevWord">קודם</button>
                   <button class="secondary" id="nextWord">הבא</button>
@@ -1692,7 +1706,7 @@
             <canvas id="waveCanvas" width="1280" height="240"></canvas>
             <div class="pan wave-transport">
               <div class="time-readout" id="audioTime">0:00 / 0:00</div>
-              <button class="secondary icon-button" id="rewindStart" aria-label="לתחילת השיר" title="לתחילת השיר">⏮</button>
+              <button class="secondary icon-button" id="rewindStart" aria-label="לתחילת השיר" title="לתחילת השיר">⏭</button>
               <button class="secondary icon-button" id="playPause" aria-label="ניגון או עצירה" title="ניגון / עצירה (רווח)">◀</button>
               <input id="wavePan" type="range" min="0" max="0" step="0.01" value="0">
             </div>
@@ -1729,7 +1743,7 @@
                     <circle cx="11" cy="11" r="8"/>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                   </svg>
-                  חיפוש מילים אונליין
+                  חיפוש אונליין
                 </button>
                 <div id="lyricsPreview" hidden>
                   <div style="display:flex;align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap;">
@@ -1741,8 +1755,8 @@
                   </div>
                   <div class="lyrics-preview-scroll" id="lyricsPreviewText"></div>
                   <div class="btn-row" id="lyricsPreviewActions" style="gap:6px;">
-                    <button class="btn-primary" id="useLyricsBtn" style="flex:1;">שימוש במילים האלה</button>
-                    <button class="btn-outline" id="tryNextSourceBtn" style="flex:1;">ניסיון במקור הבא →</button>
+                    <button class="btn-primary" id="useLyricsBtn" style="flex:1;">שימוש במילים</button>
+                    <button class="btn-outline" id="tryNextSourceBtn" style="flex:1;">מקור הבא ←</button>
                   </div>
                   <div id="lyricsFallback">
                     <a id="fallbackLink" target="_blank" class="field-link"
@@ -2631,6 +2645,7 @@
       if (status === "idle") {
         state.exportRunning = false;
         state.outputVideoPath = null;
+        state.outputVideoAvailable = false;
         state.exportLocalStartMs = null;
         renderShowVideoButton();
         renderPipelineStatus({ status: "idle", stages: [] });
@@ -2639,10 +2654,9 @@
 
       if (["queued", "building_subtitles", "rendering"].includes(status)) {
         state.exportRunning = true;
-        state.outputVideoPath = payload?.output_video || null;
-        if (state.outputVideoPath) {
-          state.outputVideoAvailable = true;
-        }
+        // Never offer a partially-written or stale file while FFmpeg runs.
+        state.outputVideoPath = null;
+        state.outputVideoAvailable = false;
         renderShowVideoButton();
         const elapsedText = state.exportLocalStartMs
           ? formatPlaybackTime(Math.max((Date.now() - state.exportLocalStartMs) / 1000, 0))
@@ -2660,9 +2674,7 @@
       if (status === "done" || status === "completed") {
         state.exportRunning = false;
         state.outputVideoPath = payload?.output_video || null;
-        if (state.outputVideoPath) {
-          state.outputVideoAvailable = true;
-        }
+        state.outputVideoAvailable = Boolean(state.outputVideoPath);
         renderShowVideoButton();
         renderPipelineStatus({
           status: "completed",
@@ -2674,10 +2686,8 @@
       }
 
       state.exportRunning = false;
-      state.outputVideoPath = payload?.output_video || null;
-      if (state.outputVideoPath) {
-        state.outputVideoAvailable = true;
-      }
+      state.outputVideoPath = null;
+      state.outputVideoAvailable = false;
       renderShowVideoButton();
       renderPipelineStatus({
         status: "error",
@@ -2689,6 +2699,11 @@
     }
 
     async function checkOutputVideoStatus() {
+      if (state.exportRunning) {
+        state.outputVideoAvailable = false;
+        renderShowVideoButton();
+        return;
+      }
       const projectName = state.session?.project_name || "";
       try {
         const payload = await fetchJson(`/api/export/video/status?project_name=${encodeURIComponent(projectName)}`);
@@ -3884,7 +3899,7 @@
         ui.stemMix.disabled = !state.stemMixAvailable;
       }
       if (ui.rewindStart) {
-        ui.rewindStart.textContent = "⏮";
+        ui.rewindStart.textContent = "⏭";
       }
       // zoomOut / zoomIn now use inline SVG icons (see HTML); zoomReset
       // shows "Fit" — do not overwrite their content here.
