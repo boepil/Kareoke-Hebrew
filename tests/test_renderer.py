@@ -17,6 +17,7 @@ def _config() -> dict[str, object]:
             "video_size": "320x240",
             "frame_rate": 30,
             "background_color": "black",
+            "ambient_loop_path": "",
             "video_codec": "libx264",
             "video_preset": "medium",
             "video_crf": 18,

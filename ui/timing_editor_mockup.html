@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10131a">
+  <title>Karaoke Studio — iPad UI Mockup</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #10131a;
+      --ink-2: #151a23;
+      --panel: #1b212c;
+      --panel-2: #202834;
+      --panel-3: #273140;
+      --line: rgba(232, 238, 245, .10);
+      --line-strong: rgba(232, 238, 245, .18);
+      --text: #f7f3ed;
+      --text-2: #bdc6d2;
+      --muted: #7e8998;
+      --coral: #ff956d;
+      --coral-2: #ffb18e;
+      --mint: #8ed7b4;
+      --green: #83d6a0;
+      --green-soft: rgba(131, 214, 160, .12);
+      --green-line: rgba(131, 214, 160, .26);
+      --red: #ff777c;
+      --blue: #91b9ff;
+      --radius: 16px;
+      --radius-sm: 12px;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+      --font: "Noto Sans Hebrew", "Assistant", "Arial", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 75% -10%, rgba(255, 149, 109, .12), transparent 28rem),
+        var(--ink);
+      color: var(--text);
+      font: 14px/1.45 var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 3px solid rgba(255, 149, 109, .42);
+      outline-offset: 2px;
+    }
+    .app-shell {
+      width: min(1680px, 100%);
+      min-height: 100vh;
+      margin: auto;
+      padding: 18px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 62px;
+      margin-bottom: 14px;
+    }
+    .brand { display: flex; align-items: center; gap: 11px; min-width: 190px; }
+    .brand-mark {
+      display: grid; place-items: center; width: 42px; height: 42px;
+      border-radius: 13px; color: var(--ink); background: linear-gradient(145deg, var(--coral-2), var(--coral));
+      box-shadow: 0 8px 22px rgba(255, 149, 109, .24);
+    }
+    .brand strong { display: block; font-size: 16px; letter-spacing: -.02em; }
+    .brand span { display: block; color: var(--muted); font-size: 11px; }
+    .topbar-title { flex: 1; min-width: 0; text-align: center; }
+    .topbar-title small { display: block; color: var(--muted); font-size: 11px; }
+    .topbar-title h1 { margin: 2px 0 0; font-size: clamp(18px, 2vw, 24px); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top-actions { display: flex; align-items: center; gap: 8px; min-width: 190px; justify-content: flex-start; }
+
+    .studio-grid { display: grid; grid-template-columns: 260px minmax(420px, 1fr) 330px; gap: 14px; align-items: stretch; }
+    .panel { background: linear-gradient(160deg, rgba(32, 40, 52, .98), rgba(25, 31, 42, .98)); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+    .rail, .inspector { display: flex; flex-direction: column; }
+    .rail { padding: 14px; gap: 12px; }
+    .workspace { padding: 16px; display: grid; gap: 13px; min-width: 0; }
+    .inspector { overflow: hidden; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 16px 12px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0; font-size: 14px; letter-spacing: -.01em; }
+    .collapse-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+    .collapse-head .head-copy { min-width: 0; }
+    .collapse-head .head-copy strong { display: block; font-size: 14px; }
+    .collapse-head .head-copy span { display: block; color: var(--muted); font-size: 11px; }
+    .collapse-btn { flex: 0 0 40px; width: 40px; min-height: 40px; padding: 0; color: var(--text-2); border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.035); font-size: 20px; line-height: 1; }
+    .collapse-btn:hover { color: var(--text); border-color: var(--line-strong); background: var(--panel-3); }
+    .rail-project-row { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 7px; align-items: center; min-height: 40px; }
+    .rail-project-row select { min-height: 40px; }
+    .rail-collapsed { grid-template-columns: 62px minmax(420px, 1fr) 330px; }
+    .inspector-collapsed { grid-template-columns: 260px minmax(420px, 1fr) 62px; }
+    .rail-collapsed.inspector-collapsed { grid-template-columns: 62px minmax(0, 1fr) 62px; }
+    .rail.collapsed, .inspector.collapsed { padding: 10px; align-items: center; }
+    .rail.collapsed .rail-section, .inspector.collapsed .inspector-tabs button[data-tab], .inspector.collapsed .inspector-body, .inspector.collapsed .inspector-footer { display: none; }
+    .rail.collapsed .rail-project-row { width: 40px; }
+    .rail.collapsed .rail-project-row select { display: none; }
+    .inspector.collapsed .inspector-tabs { width: 40px; padding: 0; border: 0; display: block; }
+    .rail.collapsed .collapse-btn { font-size: 19px; }
+    .eyebrow { color: var(--coral); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .muted { color: var(--muted); }
+    .subtle { color: var(--text-2); font-size: 12px; }
+    .icon-btn, .btn, select, input, textarea { min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); background: var(--panel-2); }
+    .icon-btn { width: 44px; padding: 0; display: inline-grid; place-items: center; }
+    .icon-btn:hover, .btn.secondary:hover, select:hover { border-color: var(--line-strong); background: var(--panel-3); }
+    .btn { padding: 0 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; white-space: nowrap; }
+    .btn.primary { color: #241612; background: var(--coral); border-color: var(--coral); }
+    .btn.primary:hover { background: var(--coral-2); }
+    .btn.success { color: #102419; background: var(--green); border-color: var(--green); }
+    .btn.success:hover { background: #a0e2b5; }
+    .btn.secondary { background: rgba(255,255,255,.035); }
+    .btn.danger { color: var(--red); }
+    .btn.wide { width: 100%; }
+    .btn.small { min-height: 40px; padding-inline: 12px; font-size: 13px; }
+    .btn[disabled] { opacity: .42; cursor: not-allowed; }
+    .top-actions .btn { min-height: 42px; }
+    select, input, textarea { width: 100%; padding: 0 12px; }
+    textarea { padding-block: 12px; resize: vertical; }
+    .field { display: grid; gap: 7px; }
+    .field label { color: var(--text-2); font-size: 11px; font-weight: 700; }
+    .rail-section { display: grid; gap: 9px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+    .rail-section:last-child { border-bottom: 0; padding-bottom: 0; }
+    .rail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .source-toggle { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; background: var(--ink-2); border: 1px solid var(--line); border-radius: 13px; }
+    .source-toggle button { min-height: 40px; color: var(--muted); background: transparent; border: 0; border-radius: 10px; }
+    .source-toggle button.active { color: var(--text); background: var(--panel-3); box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+    .status-card { display: flex; align-items: center; gap: 9px; padding: 11px; border-radius: 13px; background: var(--green-soft); border: 1px solid var(--green-line); }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px rgba(131,214,160,.10); }
+    .status-card strong { display: block; font-size: 12px; }
+    .status-card span { display: block; color: var(--text-2); font-size: 11px; }
+    .pipeline { display: grid; gap: 7px; }
+    .pipeline-row { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 11px; }
+    .pipeline-row b { margin-inline-start: auto; color: var(--green); font-weight: 700; }
+    .pipeline-row .step { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .pipeline-row.pending .step { background: var(--muted); }
+
+    .workspace-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .workspace-header .title-wrap { min-width: 0; }
+    .workspace-header h2 { margin: 2px 0 0; font-size: 20px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .workspace-header .meta { color: var(--text-2); font-size: 12px; }
+    .preview {
+      min-height: 240px; display: grid; place-items: center; position: relative; overflow: hidden;
+      padding: 24px; border-radius: var(--radius); border: 1px solid var(--line); background: radial-gradient(circle at 50% 35%, #323a4b 0, #202735 38%, #161b25 100%);
+    }
+    .preview::after { content: ""; position: absolute; inset: auto 0 0; height: 42%; background: linear-gradient(transparent, rgba(16,19,26,.58)); pointer-events: none; }
+    .preview-copy { position: relative; z-index: 1; text-align: center; direction: rtl; }
+    .preview-copy .kicker { color: var(--coral-2); font-size: 12px; font-weight: 700; }
+    .preview-copy .current-line { margin: 9px 0 4px; font-size: clamp(24px, 3vw, 37px); font-weight: 800; letter-spacing: -.04em; }
+    .preview-copy .next-line { color: rgba(247,243,237,.48); font-size: clamp(15px, 1.7vw, 20px); }
+    .preview-copy .current-word { color: var(--coral-2); }
+    .preview-time { position: absolute; inset: auto 16px 13px auto; z-index: 2; direction: ltr; color: var(--text-2); font: 12px var(--mono); }
+    .editor-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--ink-2); overflow: hidden; }
+    .editor-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .editor-toolbar .spacer { flex: 1; }
+    .transport { display: flex; align-items: center; gap: 8px; min-width: max-content; }
+    .transport .time { direction: ltr; font: 12px var(--mono); color: var(--text-2); min-width: 85px; }
+    .wave-time { direction: ltr; color: var(--text-2); font: 12px var(--mono); white-space: nowrap; min-width: 126px; }
+    .mix { display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text-2); font-size: 11px; }
+    input[type="range"] { accent-color: var(--coral); min-width: 86px; }
+    .waveform { position: relative; height: 190px; padding: 14px 14px 10px; background: linear-gradient(180deg, #171d27, #131821); overflow: hidden; }
+    .waveform-grid { position: absolute; inset: 78px 14px 14px; display: grid; grid-template-columns: repeat(28, 1fr); align-items: center; gap: 4px; opacity: .34; }
+    .waveform-grid::after { content: ""; position: absolute; inset-inline: 0; top: 50%; height: 1px; background: rgba(189,198,210,.13); }
+    .waveform-grid i { display: block; height: calc(var(--h) * .62); min-height: 8px; border-radius: 4px; background: linear-gradient(180deg, rgba(165,177,191,.78), rgba(113,128,146,.30)); }
+    .word-track { position: absolute; z-index: 3; inset: 12px 14px auto; height: 55px; direction: ltr; border-bottom: 1px solid rgba(255,255,255,.10); }
+    .word-block { position: absolute; top: 7px; height: 35px; min-width: 42px; padding: 0 9px; display: grid; place-items: center; color: var(--text-2); border: 1px solid var(--line-strong); border-radius: 8px; background: rgba(39,49,64,.92); font-size: 12px; white-space: nowrap; direction: rtl; }
+    .word-block.done { color: var(--green); border-color: var(--green-line); background: rgba(131,214,160,.10); }
+    .word-block.active { color: #291911; border-color: var(--coral); background: var(--coral); }
+    .playhead { position: absolute; z-index: 5; top: 0; bottom: 0; left: 49%; width: 2px; background: #edf2f4; box-shadow: 0 0 8px rgba(237,242,244,.45); }
+    .playhead::before { content: ""; position: absolute; top: -2px; left: 50%; width: 15px; height: 12px; transform: translateX(-50%); border-radius: 3px 3px 6px 6px; background: var(--green); box-shadow: 0 0 10px rgba(131,214,160,.56); clip-path: polygon(50% 0, 100% 54%, 78% 100%, 22% 100%, 0 54%); }
+    .wave-footer { display: flex; align-items: center; gap: 10px; padding: 10px 14px 13px; border-top: 1px solid var(--line); }
+    .wave-footer input { flex: 1; min-height: 26px; }
+    .wave-footer .zoom { display: flex; gap: 5px; direction: ltr; }
+    .wave-footer .zoom button { min-width: 38px; min-height: 38px; padding: 0; }
+
+    .inspector-tabs { display: grid; grid-template-columns: 40px 1fr 1fr; padding: 6px; gap: 5px; background: var(--ink-2); }
+    .inspector-tabs button { min-height: 42px; color: var(--muted); background: transparent; border: 0; border-radius: 10px; }
+    .inspector-tabs button.active { color: var(--text); background: var(--panel-3); }
+    .inspector-tabs > .collapse-btn { width: 40px; min-height: 42px; color: var(--text-2); border: 1px solid var(--line); background: rgba(255,255,255,.035); }
+    .inspector-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px; overflow: hidden; }
+    .selected-word { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 12px; margin-bottom: 12px; border-radius: 12px; background: rgba(255,149,109,.10); border: 1px solid rgba(255,149,109,.23); }
+    .selected-word strong { color: var(--coral-2); font-size: 17px; }
+    .selected-word span { color: var(--text-2); font-size: 11px; }
+    .lyrics-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .lyrics-list { flex: 1; min-height: 0; display: grid; align-content: start; gap: 4px; overflow-y: auto; }
+    .lyric-line { display: grid; grid-template-columns: 28px 1fr; align-items: start; gap: 8px; padding: 8px 7px; border-radius: 10px; color: var(--text-2); line-height: 1.8; text-align: right; }
+    .lyric-line:hover { background: rgba(255,255,255,.04); }
+    .lyric-line.active { color: var(--text); background: rgba(255,149,109,.14); box-shadow: inset -3px 0 var(--coral); }
+    .line-number { direction: ltr; color: var(--muted); font: 11px var(--mono); padding-top: 4px; }
+    .lyric-line .word { display: inline; }
+    .lyric-line .word.done { color: var(--green); }
+    .lyric-line .word.current { color: var(--coral-2); font-weight: 800; }
+    .inspector-footer { padding: 12px 14px 14px; border-top: 1px solid var(--line); }
+    .import-panel { display: none; gap: 12px; }
+    .import-panel.visible { display: grid; }
+    .lyrics-panel.hidden { display: none; }
+    .helper { color: var(--muted); font-size: 11px; }
+
+    .sheet-backdrop { display: none; position: fixed; inset: 0; z-index: 20; background: rgba(5,7,10,.68); backdrop-filter: blur(5px); }
+    .sheet { position: fixed; z-index: 21; inset: 0 auto 0 0; width: min(340px, 88vw); padding: 14px; transform: translateX(-105%); transition: transform .24s ease; overflow: auto; background: var(--panel); box-shadow: var(--shadow); }
+    .sheet.open { transform: translateX(0); }
+    .sheet-backdrop.open { display: block; }
+    .mobile-only { display: none; }
+    .portrait-bar { display: none; }
+
+    @media (max-width: 1180px) {
+      .studio-grid { grid-template-columns: 228px minmax(380px, 1fr) 300px; }
+      .studio-grid.rail-collapsed { grid-template-columns: 62px minmax(380px, 1fr) 300px; }
+      .studio-grid.inspector-collapsed { grid-template-columns: 228px minmax(380px, 1fr) 62px; }
+      .studio-grid.rail-collapsed.inspector-collapsed { grid-template-columns: 62px minmax(0, 1fr) 62px; }
+      .app-shell { padding: 12px; }
+      .rail { padding: 11px; }
+    }
+    @media (max-width: 900px) {
+      body { padding-bottom: env(safe-area-inset-bottom); }
+      .app-shell { padding: 10px 10px calc(82px + env(safe-area-inset-bottom)); }
+      .topbar { min-height: 54px; margin-bottom: 9px; }
+      .brand { min-width: auto; }
+      .brand-mark { width: 40px; height: 40px; }
+      .brand-text, .top-actions .secondary { display: none; }
+      .top-actions { min-width: auto; }
+      .topbar-title { text-align: right; }
+      .studio-grid { display: block; }
+      .rail, .inspector { display: none; }
+      .workspace { padding: 11px; }
+      .workspace-header { padding-inline: 2px; }
+      .workspace-header h2 { font-size: 18px; }
+      .preview { min-height: 245px; }
+      .waveform { height: 215px; }
+      .mobile-only { display: inline-grid; }
+      .portrait-bar { display: flex; position: fixed; z-index: 15; inset: auto 0 0; padding: 8px max(10px, env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)); align-items: center; justify-content: space-around; gap: 7px; background: rgba(27,33,44,.96); border-top: 1px solid var(--line-strong); backdrop-filter: blur(18px); }
+      .portrait-bar .bar-action { min-width: 64px; min-height: 52px; display: grid; place-items: center; gap: 2px; padding: 5px 8px; color: var(--text-2); background: transparent; border: 0; border-radius: 11px; font-size: 11px; }
+      .portrait-bar .bar-action.primary { color: var(--coral-2); background: rgba(255,149,109,.10); }
+      .portrait-bar svg { width: 21px; height: 21px; }
+      .editor-toolbar { margin-inline: -1px; }
+    }
+    @media (min-width: 901px) { .sheet { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="icon-btn mobile-only" id="openProjectSheet" aria-label="פתיחת פרויקטים">☰</button>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 9v6l3-3 3 3V9"/></svg>
+        </div>
+        <div class="brand-text"><strong>Karaoke Studio</strong><span>iPad studio</span></div>
+      </div>
+      <div class="topbar-title"><small>פרויקט פעיל</small><h1>אני ואת — אריק איינשטיין</h1></div>
+      <div class="top-actions">
+        <button class="btn success" id="topSave">שמירה ✓</button>
+        <button class="btn primary" id="topExport">ייצוא MP4</button>
+      </div>
+    </header>
+
+    <main class="studio-grid">
+      <aside class="panel rail" id="leftRail">
+        <div class="rail-project-row"><select id="projectSelect" aria-label="בחירת פרויקט"><option>אני ואת — אריק איינשטיין</option><option>שיר לדוגמה — פרויקט חדש</option></select><button class="collapse-btn" id="toggleLeftRail" aria-label="כווץ את סרגל הפרויקט" title="כווץ את סרגל הפרויקט">‹</button></div>
+        <div class="rail-section">
+          <div class="rail-actions"><button class="btn success" id="saveProject">שמירה ✓</button><button class="btn secondary danger" id="deleteProject">מחיקה</button></div>
+        </div>
+        <div class="rail-section">
+          <div class="eyebrow">Import audio</div>
+          <div class="source-toggle" id="sourceToggle"><button class="active" data-source="youtube">YouTube</button><button data-source="audio">קובץ שמע</button></div>
+          <input id="youtubeUrl" dir="ltr" placeholder="הדבקת קישור YouTube">
+          <button class="btn primary wide" id="importProject">ייבוא פרויקט <span aria-hidden="true">↗</span></button>
+        </div>
+        <div class="rail-section">
+          <div class="eyebrow">AI assistant</div>
+          <button class="btn secondary wide" id="aiFirstPass">הפעלת סנכרון אוטומטי <span aria-hidden="true">✦</span></button>
+          <div class="status-card"><i class="status-dot"></i><div><strong id="projectStatus">מוכן לעריכה</strong><span id="pipelineStatus">כל הנתונים נשמרו</span></div></div>
+          <div class="pipeline"><div class="pipeline-row"><i class="step"></i><span>זיהוי שמע</span><b>בוצע</b></div><div class="pipeline-row"><i class="step"></i><span>תמלול עברית</span><b>בוצע</b></div><div class="pipeline-row pending"><i class="step"></i><span>בדיקת תזמון</span><b>ממתין</b></div></div>
+        </div>
+        <div class="rail-section"><button class="btn secondary wide" id="showVideo">פתיחת וידאו אחרון <span aria-hidden="true">↗</span></button><span class="helper">קיצור דרך: Space לניגון · L למילים</span></div>
+      </aside>
+
+      <section class="panel workspace">
+        <section class="preview" id="preview" aria-label="תצוגת קריוקי"><div class="preview-copy"><div class="kicker">אני ואת / פזמון</div><div class="current-line">רק אני <span class="current-word">ואת</span> שרים הלילה</div><div class="next-line">ומחר נתחיל מחדש</div></div></section>
+        <section class="editor-card" aria-label="עריכת תזמון">
+          <div class="editor-toolbar">
+            <div class="transport"><button class="icon-btn" id="rewindStart" aria-label="תחילת השיר">⏮</button><button class="icon-btn" id="playPause" aria-label="ניגון או עצירה">▶</button></div>
+            <div class="spacer"></div><button class="btn secondary small" id="jumpWord">סנכרון</button><button class="btn primary small" id="placeWord">אישור מילה</button><button class="btn secondary small" id="undoEdit">↶ ביטול</button>
+            <label class="mix">מיקס <input id="stemMix" type="range" min="-1" max="1" step=".01" value="0" aria-label="מיקס קולות"></label>
+          </div>
+          <div class="waveform" id="waveShell"><div class="word-track"><span class="word-block done" style="left:2%;width:12%">רק</span><span class="word-block active" style="left:17%;width:16%">אני</span><span class="word-block active" style="left:37%;width:17%">ואת</span><span class="word-block" style="left:58%;width:18%">שרים</span><span class="word-block" style="left:80%;width:14%">הלילה</span></div><div class="waveform-grid" aria-hidden="true"><i style="--h:28%"></i><i style="--h:48%"></i><i style="--h:72%"></i><i style="--h:40%"></i><i style="--h:62%"></i><i style="--h:88%"></i><i style="--h:52%"></i><i style="--h:34%"></i><i style="--h:76%"></i><i style="--h:44%"></i><i style="--h:60%"></i><i style="--h:92%"></i><i style="--h:55%"></i><i style="--h:32%"></i><i style="--h:70%"></i><i style="--h:48%"></i><i style="--h:82%"></i><i style="--h:42%"></i><i style="--h:64%"></i><i style="--h:30%"></i><i style="--h:74%"></i><i style="--h:50%"></i><i style="--h:86%"></i><i style="--h:38%"></i><i style="--h:68%"></i><i style="--h:46%"></i><i style="--h:77%"></i><i style="--h:34%"></i></div><div class="playhead" id="playhead"></div></div><div class="wave-footer"><span class="wave-time" id="audioTime">01:24.680 / 03:42.100</span><input id="wavePan" type="range" min="0" max="100" value="48" aria-label="הזזת חלון הגל"></input><div class="zoom"><button class="btn secondary small" id="zoomOut">−</button><button class="btn secondary small" id="zoomReset">Fit</button><button class="btn secondary small" id="zoomIn">+</button></div></div>
+        </section>
+      </section>
+
+      <aside class="panel inspector" id="rightDrawer">
+        <div class="inspector-tabs"><button class="collapse-btn" id="toggleRightDrawer" aria-label="כווץ את לוח המילים" title="כווץ את לוח המילים">›</button><button class="active" data-tab="lyrics">מילים</button><button data-tab="import">ייבוא</button></div>
+        <div class="inspector-body">
+          <div class="lyrics-panel" id="lyricsPanel"><div class="selected-word"><div><span>מילה נבחרת</span><strong id="selectedWordLabel">ואת</strong></div><span class="word-count">מילה 32 מתוך 128</span></div><div class="lyrics-list" id="lyricsList" contenteditable="true" dir="rtl"><div class="lyric-line"><span class="line-number">01</span><span><span class="word done">רק</span> <span class="word done">אני</span> <span class="word current">ואת</span> שרים הלילה</span></div><div class="lyric-line active"><span class="line-number">02</span><span>ומחר נתחיל מחדש</span></div><div class="lyric-line"><span class="line-number">03</span><span>בין הרחובות והאורות</span></div><div class="lyric-line"><span class="line-number">04</span><span>נמצא את הדרך הביתה</span></div><div class="lyric-line"><span class="line-number">05</span><span>רק אני ואת</span></div></div></div>
+          <div class="import-panel" id="importPanel"><div class="field"><label for="pasteLyrics">הדבקת מילים</label><textarea id="pasteLyrics" rows="7" placeholder="הדביקו כאן את מילות השיר..."></textarea></div><button class="btn primary wide" id="processLyrics">עיבוד מילים</button><button class="btn secondary wide" id="searchLyrics">חיפוש מילים אונליין</button><span class="helper">ניתן להמשיך לערוך גם לאחר הייבוא.</span></div>
+        </div>
+        <div class="inspector-footer"><button class="btn success wide" id="saveLyrics">שמירת מילים ✓</button></div>
+      </aside>
+    </main>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <aside class="sheet" id="projectSheet" aria-label="פרויקט וייבוא"><div class="panel-head"><h2>פרויקט</h2><button class="icon-btn" id="closeProjectSheet">×</button></div><div id="sheetContent"></div></aside>
+  <nav class="portrait-bar" aria-label="ניווט מהיר"><button class="bar-action" id="mobileProject"><span>☰</span><span>פרויקט</span></button><button class="bar-action" id="mobileLyrics"><span>☷</span><span>מילים</span></button><button class="bar-action primary" id="mobilePlay"><span>▶</span><span>ניגון</span></button><button class="bar-action" id="mobileUndo"><span>↶</span><span>ביטול</span></button><button class="bar-action" id="mobileExport"><span>↗</span><span>ייצוא</span></button></nav>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const backdrop = $("sheetBackdrop");
+    const sheet = $("projectSheet");
+    const openSheet = () => { sheet.classList.add("open"); backdrop.classList.add("open"); };
+    const closeSheet = () => { sheet.classList.remove("open"); backdrop.classList.remove("open"); };
+    $("openProjectSheet").addEventListener("click", openSheet);
+    $("mobileProject").addEventListener("click", openSheet);
+    $("closeProjectSheet").addEventListener("click", closeSheet);
+    backdrop.addEventListener("click", closeSheet);
+    $("sheetContent").innerHTML = $("leftRail").outerHTML.replace('id="leftRail"', 'id="sheetRail"');
+    $("sheetContent").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => { if (button.id === "saveProject") flash("נשמר בהצלחה"); }));
+
+    const flash = (message) => {
+      const status = $("projectStatus");
+      const previous = status.textContent;
+      status.textContent = message;
+      setTimeout(() => { status.textContent = previous; }, 1600);
+    };
+    $("topSave").addEventListener("click", () => flash("נשמר בהצלחה"));
+    $("saveProject").addEventListener("click", () => flash("נשמר בהצלחה"));
+    $("saveLyrics").addEventListener("click", () => flash("המילים נשמרו"));
+    $("topExport").addEventListener("click", () => flash("הייצוא התחיל"));
+    $("mobileExport").addEventListener("click", () => flash("הייצוא התחיל"));
+    $("aiFirstPass").addEventListener("click", (event) => { event.currentTarget.textContent = "הסנכרון פועל…"; setTimeout(() => event.currentTarget.textContent = "הפעלת סנכרון אוטומטי ✦", 1700); });
+    $("playPause").addEventListener("click", (event) => { event.currentTarget.textContent = event.currentTarget.textContent === "▶" ? "Ⅱ" : "▶"; });
+    $("mobilePlay").addEventListener("click", () => { $("playPause").click(); });
+    $("mobileUndo").addEventListener("click", () => flash("הפעולה בוטלה"));
+    $("rewindStart").addEventListener("click", () => flash("תחילת השיר"));
+    document.querySelectorAll(".inspector-tabs button[data-tab]").forEach((tab) => tab.addEventListener("click", () => {
+      document.querySelectorAll(".inspector-tabs button").forEach((item) => item.classList.remove("active"));
+      tab.classList.add("active");
+      const showLyrics = tab.dataset.tab === "lyrics";
+      $("lyricsPanel").classList.toggle("hidden", !showLyrics);
+      $("importPanel").classList.toggle("visible", !showLyrics);
+    }));
+    $("mobileLyrics").addEventListener("click", () => { document.querySelector('[data-tab="lyrics"]').click(); if (window.matchMedia("(max-width: 900px)").matches) openSheet(); });
+    document.querySelectorAll(".lyric-line").forEach((line) => line.addEventListener("click", () => { document.querySelectorAll(".lyric-line").forEach((item) => item.classList.remove("active")); line.classList.add("active"); }));
+    document.querySelectorAll(".word-block").forEach((word) => word.addEventListener("click", () => { document.querySelectorAll(".word-block").forEach((item) => item.classList.remove("active")); word.classList.add("active"); $("selectedWordLabel").textContent = word.textContent; }));
+    $("sourceToggle").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => { $("sourceToggle").querySelectorAll("button").forEach((item) => item.classList.remove("active")); button.classList.add("active"); $("youtubeUrl").placeholder = button.dataset.source === "youtube" ? "הדבקת קישור YouTube" : "בחירת קובץ שמע מהמכשיר"; }));
+    const studioGrid = document.querySelector(".studio-grid");
+    $("toggleLeftRail").addEventListener("click", () => {
+      const collapsed = $("leftRail").classList.toggle("collapsed");
+      studioGrid.classList.toggle("rail-collapsed", collapsed);
+      $("toggleLeftRail").textContent = collapsed ? "›" : "‹";
+      $("toggleLeftRail").setAttribute("aria-label", collapsed ? "פתח את סרגל הפרויקט" : "כווץ את סרגל הפרויקט");
+      $("toggleLeftRail").setAttribute("title", collapsed ? "פתח את סרגל הפרויקט" : "כווץ את סרגל הפרויקט");
+    });
+    $("toggleRightDrawer").addEventListener("click", () => {
+      const collapsed = $("rightDrawer").classList.toggle("collapsed");
+      studioGrid.classList.toggle("inspector-collapsed", collapsed);
+      $("toggleRightDrawer").textContent = collapsed ? "‹" : "›";
+      $("toggleRightDrawer").setAttribute("aria-label", collapsed ? "פתח את לוח המילים" : "כווץ את לוח המילים");
+      $("toggleRightDrawer").setAttribute("title", collapsed ? "פתח את לוח המילים" : "כווץ את לוח המילים");
+    });
+    $("importProject").addEventListener("click", () => flash("הייבוא התחיל"));
+    $("processLyrics").addEventListener("click", () => flash("המילים עובדו"));
+    $("searchLyrics").addEventListener("click", () => flash("מחפש מקורות…"));
+    ["zoomOut", "zoomIn", "zoomReset", "jumpWord", "placeWord"].forEach((id) => $(id).addEventListener("click", () => flash("עודכן")));
+  </script>
+</body>
+</html>

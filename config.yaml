@@ -71,6 +71,7 @@ renderer:
   video_size: 1920x1080
   frame_rate: 24
   background_color: black
+  ambient_loop_path: Ambient Loop.mp4
   video_codec: libx264
   video_preset: ultrafast
   video_crf: 20

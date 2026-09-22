@@ -22,9 +22,6 @@ import yaml
 
 LOGGER = logging.getLogger(__name__)
 
-AMBIENT_LOOP_PATH = Path(r"D:\_PROJECTS\My\ai\Kareoke_Hebrew\Ambient Loop.mp4")
-
-
 def _audio_duration_seconds(path: Path) -> float:
     if path.suffix.lower() != ".wav":
         return 0.0
@@ -68,6 +65,57 @@ def _subtitle_builder_section(config: Mapping[str, Any]) -> Mapping[str, Any]:
     if not isinstance(settings, Mapping):
         return {}
     return settings
+
+
+def _resolve_ambient_loop_path(settings: Mapping[str, Any]) -> Path | None:
+    """Resolve the optional background loop without relying on a machine path.
+
+    Older versions of the renderer used an absolute path from a different
+    checkout.  A missing ambient loop should never prevent the karaoke render:
+    FFmpeg can use a generated solid-color video input instead.
+    """
+    configured_path = settings.get("ambient_loop_path", "Ambient Loop.mp4")
+    if configured_path in (None, "", False):
+        return None
+
+    candidate = Path(str(configured_path)).expanduser()
+    candidates = [candidate]
+    if not candidate.is_absolute():
+        candidates.extend(
+            [
+                Path.cwd() / candidate,
+                Path(__file__).resolve().parent.parent / candidate,
+            ]
+        )
+
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file():
+            return path.resolve()
+
+    LOGGER.warning("Ambient loop not found; using generated background: %s", configured_path)
+    return None
+
+
+def _background_input_args(settings: Mapping[str, Any]) -> list[str]:
+    """Return FFmpeg input arguments for the optional background video."""
+    ambient_loop = _resolve_ambient_loop_path(settings)
+    if ambient_loop is not None:
+        return ["-stream_loop", "-1", "-i", str(ambient_loop)]
+
+    video_size = str(settings.get("video_size", "1920x1080"))
+    frame_rate = str(settings.get("frame_rate", 30))
+    background_color = str(settings.get("background_color", "black"))
+    return [
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c={background_color}:s={video_size}:r={frame_rate}",
+    ]
 
 
 def _find_font_path(font_name: str, font_path: str) -> str | None:
@@ -211,10 +259,7 @@ def build_render_command(
         "-hide_banner",
         "-loglevel",
         "error",
-        "-stream_loop",
-        "-1",
-        "-i",
-        str(AMBIENT_LOOP_PATH),
+        *_background_input_args(settings),
         "-i",
         str(no_vocals_audio),
         "-map",
@@ -622,10 +667,7 @@ def render_video(
             "-hide_banner",
             "-loglevel",
             "error",
-            "-stream_loop",
-            "-1",
-            "-i",
-            str(AMBIENT_LOOP_PATH),
+            *_background_input_args(settings),
             "-i",
             str(audio_path),
             *image_inputs,

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Manual Karaoke Editor</title>
+  <title>סטודיו קריוקי</title>
   <style>
     :root {
       color-scheme: dark;
@@ -1364,10 +1364,172 @@
       .rail { flex: 0 0 auto; width: 100%; min-width: 0; }
       .workspace { width: 100%; min-width: 0; }
     }
+
+    /* --- iPad studio skin: preserves the existing IDs and behavior --- */
+    :root {
+      --text: #f7f3ed;
+      --text-2: #bdc6d2;
+      --muted-2: #7e8998;
+      --accent: #ff956d;
+      --bg-app: #10131a;
+      --bg-panel: #1b212c;
+      --bg-input: #202834;
+      --bg-input-hover: #273140;
+      --border: rgba(232, 238, 245, .10);
+      --border-2: rgba(232, 238, 245, .18);
+      --line: rgba(232, 238, 245, .10);
+      --r-card: 16px;
+      --r-input: 12px;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+      --green: #83d6a0;
+      --ui: "Noto Sans Hebrew", "Assistant", system-ui, sans-serif;
+      --display: "Noto Sans Hebrew", "Assistant", system-ui, sans-serif;
+    }
+    body {
+      background: radial-gradient(circle at 75% -10%, rgba(255, 149, 109, .12), transparent 28rem), var(--bg-app);
+      font-family: var(--ui);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    button { min-height: 44px; height: 44px; border-radius: 12px; border-width: 1px; font-size: 13px; }
+    input, select, textarea { min-height: 44px; border-radius: 12px; border-width: 1px; }
+    #zoomOut, #zoomIn, #zoomReset { min-height: 44px; height: 44px; }
+    .app-topbar { display: flex; align-items: center; gap: 14px; min-height: 62px; margin-bottom: 14px; direction: rtl; }
+    .app-brand { display: flex; align-items: center; gap: 11px; min-width: 190px; }
+    .app-brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; color: #241612; background: linear-gradient(145deg, #ffb18e, var(--accent)); box-shadow: 0 8px 22px rgba(255,149,109,.24); }
+    .app-brand-copy strong { display: block; font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
+    .app-brand-copy span { display: block; color: var(--muted-2); font-size: 11px; }
+    .app-title { flex: 1; min-width: 0; text-align: center; }
+    .app-title small { display: block; color: var(--muted-2); font-size: 11px; }
+    .app-title .project-title-input { width: min(520px, 100%); min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 24px; font-weight: 800; line-height: 1.2; }
+    .app-actions { display: flex; align-items: center; gap: 8px; min-width: 190px; }
+    .app-actions .btn-primary { width: auto; min-width: 96px; padding-inline: 16px; }
+    .app-actions .top-save { background: var(--green); border-color: var(--green); color: #102419; }
+    .app-actions .top-save:hover:not(:disabled) { background: #a0e2b5; border-color: #a0e2b5; }
+    .app-actions .top-export { background: var(--accent); border-color: var(--accent); color: #241612; }
+    .rail-header { display: none; }
+    .project-section .sidebar-label { display: none; }
+    .sidebar-section { font-size: 14px; }
+    .btn-primary, .btn-danger, .btn-outline { font-size: 14px; font-weight: 700; }
+    .pill-btn { font-size: 14px; }
+    .drawer-tab { font-size: 14px; font-weight: 700; }
+    .lyrics-line { font-size: 16px; }
+    .lyrics-words { font-size: 16px; font-weight: 600; }
+    .shell { width: min(1680px, calc(100vw - 24px)); margin: 12px auto; padding: 12px; border: 0; background: transparent; box-shadow: none; }
+    .app { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; min-height: calc(100vh - 100px); align-items: stretch; }
+    .app.rail-collapsed { grid-template-columns: 58px minmax(0, 1fr); }
+    .rail { width: auto; min-width: 0; flex: none; overflow: hidden; }
+    .rail > .section { height: 100%; min-height: calc(100vh - 100px); padding: 14px; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
+    .rail-header { min-height: 40px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    .rail-header svg { color: var(--accent); stroke: currentColor; }
+    .rail-header h2 { font-size: 14px; }
+    .sidebar-section { gap: 9px; padding: 0 0 13px; margin-bottom: 13px; border-bottom: 1px solid var(--border); }
+    .sidebar-section:last-of-type { border-bottom: 0; }
+    .sidebar-label { color: var(--accent); font-size: 10px; letter-spacing: .12em; }
+    .project-row { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 7px; align-items: center; }
+    .project-input-wrap input { min-height: 44px; padding-inline: 12px 34px; border: 1px solid var(--border); background: var(--bg-input); font-size: 14px; }
+    .project-input-wrap select { min-height: 44px; }
+    .project-input-arrow { right: 12px; }
+    .project-toggle, .drawer-toggle { position: static; transform: none; width: 40px; min-width: 40px; height: 40px; padding: 0; border: 1px solid var(--border-2); border-radius: 10px; background: rgba(255,255,255,.035); color: var(--text-2); font-size: 20px; }
+    .project-toggle:hover, .drawer-toggle:hover { background: var(--bg-input-hover); color: var(--text); }
+    .btn-primary, .btn-danger, .btn-outline { min-height: 44px; height: 44px; border-radius: 12px; border-width: 1px; font-size: 13px; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #241612; }
+    .btn-primary:hover:not(:disabled) { background: #ffb18e; border-color: #ffb18e; }
+    .btn-danger { color: #ff777c; border-color: rgba(255,119,124,.35); background: rgba(255,119,124,.06); }
+    .btn-row { gap: 8px; }
+    .pill-group { padding: 4px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-app); }
+    .pill-btn { min-height: 40px; border: 0; border-radius: 10px; background: transparent; color: var(--muted-2); }
+    .pill-btn.active { background: var(--bg-input-hover); color: var(--text); }
+    .combined-input { min-height: 44px; border: 1px solid var(--border); border-radius: 12px; }
+    .combined-input input { min-height: 42px; background: transparent; }
+    .pipeline-card { padding: 11px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-input); }
+    .status-pill { padding-top: 0; }
+    .chip { min-height: 34px; padding: 6px 10px; border-color: var(--border-2); background: var(--bg-input); }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; min-width: 0; align-items: stretch; }
+    .workspace.drawer-collapsed { grid-template-columns: minmax(0, 1fr) 58px; }
+    .workspace > .section { min-height: calc(100vh - 100px); padding: 14px; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
+    .editor { gap: 12px; }
+    .editor-head { min-height: 44px; }
+    .project-title-input { min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-input); font-size: 20px; }
+    .header-icon { width: 40px; height: 40px; margin-right: 0; border: 1px solid var(--border-2); border-radius: 10px; font-size: 16px; }
+    .preview { min-height: 260px; height: clamp(260px, 34vh, 410px); border: 1px solid var(--border); border-radius: var(--r-card); background: radial-gradient(circle at 50% 35%, #323a4b 0, #202735 38%, #161b25 100%); }
+    .preview-line { font-size: 20px; }
+    .preview-line.current { font-size: 30px; }
+    .toolbar { min-height: 52px; gap: 8px; overflow-x: auto; }
+    .toolbar-left, .toolbar-right { gap: 7px; }
+    .toolbar button, .toolbar .icon-button { min-height: 44px; height: 44px; border-radius: 11px; }
+    .stem-mix { min-height: 44px; border-radius: 11px; }
+    .wave-shell { border: 1px solid var(--border); border-radius: var(--r-card); background: #151b24; padding: 12px 12px 10px; }
+    .word-layer { height: 76px; border-bottom: 1px solid rgba(255,255,255,.10); }
+    .word { top: 14px; min-height: 38px; padding-inline: 9px; border-radius: 8px; background: var(--bg-input); font-size: 12px; }
+    .word.active { color: #291911; background: var(--accent); border-color: var(--accent); }
+    .word.done { color: var(--green); border-color: rgba(131,214,160,.26); background: rgba(131,214,160,.10); }
+    #waveCanvas { height: 230px; background: transparent; margin-top: 0; }
+    .playhead { z-index: 8; top: 0; bottom: 0; width: 2px; background: #edf2f4; box-shadow: 0 0 8px rgba(237,242,244,.45); }
+    .playhead::before { top: -2px; width: 15px; height: 12px; transform: translateX(-50%); border-radius: 3px; background: var(--green); box-shadow: 0 0 10px rgba(131,214,160,.56); clip-path: polygon(0 50%, 38% 0, 100% 0, 100% 100%, 38% 100%); }
+    .wave-transport { min-height: 48px; margin-top: 8px; }
+    .time-readout { min-width: 112px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-2); direction: ltr; }
+    .wave-transport input[type="range"] { min-height: 24px; direction: ltr; }
+    .drawer { width: auto; min-width: 0; flex: none; height: auto; min-height: calc(100vh - 100px); border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
+    .drawer-tabs { display: grid; grid-template-columns: 40px 1fr 1fr; gap: 5px; padding: 6px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+    .drawer-tab { min-height: 42px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; font-size: 12px; }
+    .drawer-tab.active { color: var(--accent); background: var(--bg-input-hover); border-bottom: 0; }
+    .drawer-close { display: none; }
+    .drawer-header { display: flex; padding: 12px 14px 0; border-bottom: 0; }
+    .drawer-header-title { display: none; }
+    .drawer-header-meta { width: 100%; }
+    .drawer-header-meta .chip { width: 100%; min-height: 44px; justify-content: space-between; padding: 8px 12px; border-color: rgba(255,149,109,.30); background: rgba(255,149,109,.10); color: var(--text); font-size: 13px; }
+    .drawer-body { min-height: 0; flex: 1; }
+    .drawer-tab-content { min-height: 0; }
+    .drawer-content { min-height: 0; flex: 1; padding: 6px 0; overflow-y: auto; }
+    .lyrics-line { padding: 8px 14px; font-size: 15px; }
+    .drawer-footer { margin-top: auto; padding: 12px 14px 14px; border-top: 1px solid var(--border); }
+    .drawer-footer .btn-primary { background: var(--green); border-color: var(--green); color: #102419; }
+    .drawer-footer .btn-primary:hover:not(:disabled) { background: #a0e2b5; border-color: #a0e2b5; }
+    .drawer.collapsed .drawer-tab { display: none; }
+    .drawer.collapsed .drawer-tabs { display: block; width: 40px; padding: 0; border: 0; background: transparent; }
+    .drawer.collapsed .drawer-body, .drawer.collapsed .drawer-footer { display: none; }
+    .rail.collapsed > .section > .rail-header, .rail.collapsed > .section > .sidebar-section, .rail.collapsed > .section > .status-pill { display: none; }
+    .rail.collapsed > .section > .project-section { display: flex; }
+    .rail.collapsed > .section > .project-section > :not(.project-row) { display: none; }
+    .rail.collapsed .project-row { display: flex; justify-content: center; }
+    .rail.collapsed .project-input-wrap { display: none; }
+    .rail.collapsed .project-toggle { display: inline-flex; }
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 220px minmax(0, 1fr); }
+      .workspace { grid-template-columns: minmax(0, 1fr) 290px; }
+      .app.rail-collapsed { grid-template-columns: 58px minmax(0, 1fr); }
+      .workspace.drawer-collapsed { grid-template-columns: minmax(0, 1fr) 58px; }
+    }
+    @media (max-width: 940px) {
+      .shell { width: 100%; margin: 0; padding: 8px; }
+      .app { display: block; min-height: 100vh; }
+      .rail { display: none; }
+      .workspace { display: block; }
+      .workspace > .section { min-height: calc(100vh - 16px); }
+      .drawer { display: none; }
+      .drawer:not([hidden]) { display: flex; position: fixed; z-index: 20; inset: 8px; width: auto; min-height: 0; }
+      .workspace.drawer-collapsed .drawer { display: none; }
+      .editor-head { padding-top: env(safe-area-inset-top); }
+      .toolbar { padding-bottom: env(safe-area-inset-bottom); }
+    }
   </style>
 </head>
 <body>
   <div class="shell">
+    <header class="app-topbar">
+      <div class="app-brand">
+        <div class="app-brand-mark" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 9v6l3-3 3 3V9"/></svg>
+        </div>
+        <div class="app-brand-copy"><strong>Karaoke Studio</strong><span>iPad studio</span></div>
+      </div>
+      <div class="app-title"><small>פרויקט פעיל</small><input id="projectTitle" class="project-title-input" type="text" placeholder="זמר / שם פרויקט"></div>
+      <div class="app-actions">
+        <button class="btn-primary top-save" id="saveProject">שמירת פרויקט ✓</button>
+        <button class="btn-primary top-export" id="exportMp4">ייצוא MP4</button>
+      </div>
+    </header>
     <div class="app">
       <aside class="rail" id="leftRail">
         <section class="section" style="display:flex;flex-direction:column;gap:14px;">
@@ -1378,34 +1540,35 @@
               <path d="M9 15V9l3 3-3 3z"/>
               <path d="M13 15V9l3 3-3 3z"/>
             </svg>
-            <h2>Waveform Karaoke</h2>
+            <h2>סטודיו קריוקי</h2>
           </div>
 
           <!-- Project -->
-          <div class="sidebar-section">
-            <div class="sidebar-label">PROJECT</div>
-            <div class="project-input-wrap">
-              <input id="projectName" type="text" placeholder="Project name">
-              <select id="projectSelect">
-                <option value="">No saved projects</option>
-              </select>
-              <div class="project-input-arrow">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
+          <div class="sidebar-section project-section">
+            <div class="sidebar-label">פרויקט</div>
+            <div class="project-row">
+              <div class="project-input-wrap">
+                <input id="projectName" type="text" placeholder="שם פרויקט">
+                <select id="projectSelect">
+                  <option value="">אין פרויקטים שמורים</option>
+                </select>
+                <div class="project-input-arrow">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"/>
+                  </svg>
+                </div>
               </div>
+              <button class="panel-toggle project-toggle" id="toggleLeft" aria-label="סגירת לוח הפרויקט" title="סגירת לוח הפרויקט">‹</button>
             </div>
-            <button class="btn-primary" id="saveProject">Save Project</button>
             <div class="btn-row">
-              <button class="btn-danger" id="deleteProject">Delete Project</button>
-              <button class="btn-primary" id="exportMp4">Export</button>
+              <button class="btn-danger" id="deleteProject">מחיקת פרויקט</button>
             </div>
             <button class="btn-outline" id="showVideo" disabled>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                 <circle cx="12" cy="12" r="3"/>
               </svg>
-              Show Movie
+              פתיחת וידאו אחרון
             </button>
           </div>
 
@@ -1424,7 +1587,7 @@
                   <circle cx="6" cy="18" r="3"/>
                   <circle cx="18" cy="16" r="3"/>
                 </svg>
-                Audio File
+                קובץ שמע
               </button>
             </div>
             <div class="combined-input" id="setupInputArea">
@@ -1432,11 +1595,11 @@
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
               </svg>
-              <input class="url-input" id="youtubeUrl" type="url" dir="ltr" placeholder="Paste a YouTube link" style="padding-left:32px;">
+              <input class="url-input" id="youtubeUrl" type="url" dir="ltr" placeholder="הדבקת קישור YouTube" style="padding-left:32px;">
               <input id="audioFile" type="file" accept="audio/*" hidden>
             </div>
             <button class="btn-primary" id="importProject" style="display:flex;align-items:center;justify-content:center;">
-              Create Project
+              ייבוא פרויקט ↗
             </button>
           </div>
 
@@ -1445,8 +1608,8 @@
             <div class="pipeline-card" id="pipelineCard" hidden>
               <div class="pipeline-card-row">
                 <div class="pipeline-card-spin"></div>
-                <div class="pipeline-card-stage" id="pipelineStage">Initializing...</div>
-                <div class="pipeline-card-status" id="pipelineStatusLabel">Running...</div>
+                <div class="pipeline-card-stage" id="pipelineStage">מאתחל...</div>
+                <div class="pipeline-card-status" id="pipelineStatusLabel">פועל...</div>
                 <div class="pipeline-card-time" id="pipelineElapsed">0:00</div>
               </div>
               <div class="pipeline-bar">
@@ -1462,19 +1625,19 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
               </svg>
-              AI Pass
+              הפעלת סנכרון אוטומטי ✦
             </button>
             <button class="btn-danger btn-hidden" id="stopAiPass" style="display:flex;align-items:center;justify-content:center;gap:8px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="6" y="6" width="12" height="12" rx="2"/>
               </svg>
-              Stop AI Pass
+              עצירת סנכרון
             </button>
           </div>
 
           <!-- Footer -->
            <div class="status-pill">
-             <div class="chip" id="projectStatus">No project loaded.</div>
+             <div class="chip" id="projectStatus" aria-live="polite">אין פרויקט טעון</div>
            </div>
 
         </section>
@@ -1482,28 +1645,22 @@
 
       <main class="workspace">
         <section class="section editor" style="position: relative;">
-          <button class="panel-toggle left" id="toggleLeft" aria-label="Toggle Left Panel">◀</button>
-          <button class="panel-toggle right" id="toggleRight" aria-label="Toggle Right Panel">▶</button>
-          <div class="editor-head">
-            <input id="projectTitle" class="project-title-input" type="text" placeholder="Singer / Project Name">
-            <a href="https://www.youtube.com/@IsraeliMusic/playlists" target="_blank" rel="noopener noreferrer" class="header-icon" title="Israeli Music Playlists" aria-label="Open Israeli Music Playlists on YouTube">📺</a>
-          </div>
-          <div class="preview empty" id="preview">Import a project to begin.</div>
+          <div class="preview empty" id="preview">ייבאו פרויקט כדי להתחיל</div>
           <textarea id="lyricsText" hidden></textarea>
           <audio id="audio" controls preload="metadata"></audio>
           <audio id="vocalsAudio" preload="metadata"></audio>
           <audio id="musicAudio" preload="metadata"></audio>
 <div class="toolbar">
               <div class="toolbar-left">
-                <button class="secondary" id="jumpWord">Sync</button>
-                <button class="primary" id="placeWord">Commit</button>
-                <button class="amber-outline" id="resetWord">Reset→</button>
+                <button class="secondary" id="jumpWord">סנכרון</button>
+                <button class="primary" id="placeWord">אישור מילה</button>
+                <button class="amber-outline" id="resetWord">איפוס →</button>
                 <div class="btn-group">
-                  <button class="secondary" id="prevWord">Prev</button>
-                  <button class="secondary" id="nextWord">Next</button>
-                  <button class="secondary" id="lastWord">Last</button>
+                  <button class="secondary" id="prevWord">קודם</button>
+                  <button class="secondary" id="nextWord">הבא</button>
+                  <button class="secondary" id="lastWord">אחרונה</button>
                 </div>
-                <button class="secondary icon-button" id="undoEdit" disabled title="Undo last edit (Ctrl+Z)" aria-label="Undo last edit">↶</button>
+                <button class="secondary icon-button" id="undoEdit" disabled title="ביטול פעולה אחרונה (Ctrl+Z)" aria-label="ביטול פעולה אחרונה">↶</button>
               </div>
               <div class="toolbar-middle">
               </div>
@@ -1511,14 +1668,14 @@
                 <div class="stem-mix">
                   <input id="stemMix" type="range" min="-1" max="1" step="0.01" value="0">
                 </div>
-                <button class="secondary icon-button" id="zoomOut" aria-label="Zoom Out">
+                <button class="secondary icon-button" id="zoomOut" aria-label="הקטנת תצוגה">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     <line x1="8" y1="11" x2="14" y2="11"></line>
                   </svg>
                 </button>
-                <button class="secondary icon-button" id="zoomIn" aria-label="Zoom In">
+                <button class="secondary icon-button" id="zoomIn" aria-label="הגדלת תצוגה">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -1526,7 +1683,7 @@
                     <line x1="8" y1="11" x2="14" y2="11"></line>
                   </svg>
                 </button>
-                <button class="secondary" id="zoomReset" aria-label="Reset Zoom">Fit</button>
+                <button class="secondary" id="zoomReset" aria-label="איפוס תצוגה">התאם</button>
               </div>
             </div>
           <div class="wave-shell" id="waveShell">
@@ -1535,22 +1692,23 @@
             <canvas id="waveCanvas" width="1280" height="240"></canvas>
             <div class="pan wave-transport">
               <div class="time-readout" id="audioTime">0:00 / 0:00</div>
-              <button class="secondary icon-button" id="rewindStart" aria-label="Go to Beginning" title="Go to Beginning">⏮</button>
-              <button class="secondary icon-button" id="playPause" aria-label="Play or Pause" title="Play / Pause (Space)">▶</button>
+              <button class="secondary icon-button" id="rewindStart" aria-label="לתחילת השיר" title="לתחילת השיר">⏮</button>
+              <button class="secondary icon-button" id="playPause" aria-label="ניגון או עצירה" title="ניגון / עצירה (רווח)">◀</button>
               <input id="wavePan" type="range" min="0" max="0" step="0.01" value="0">
             </div>
           </div>
         </section>
-        <aside class="drawer" id="rightDrawer" hidden>
+        <aside class="drawer" id="rightDrawer">
           <div class="drawer-tabs">
-            <div class="drawer-tab active" data-tab="editor">Lyrics Editor</div>
-            <div class="drawer-tab" data-tab="import">Import Lyrics</div>
+            <button class="panel-toggle drawer-toggle" id="toggleRight" aria-label="סגירת לוח המילים" title="סגירת לוח המילים">▶</button>
+            <div class="drawer-tab active" data-tab="editor">מילים</div>
+            <div class="drawer-tab" data-tab="import">ייבוא</div>
           </div>
-          <button class="drawer-close" id="closeDrawer" aria-label="Close">✕</button>
+          <button class="drawer-close" id="closeDrawer" aria-label="סגירה">✕</button>
           <div class="drawer-header">
-            <div class="drawer-header-title">LYRICS ⓘ</div>
+            <div class="drawer-header-title">מילים ⓘ</div>
             <div class="drawer-header-meta">
-              <div class="chip selected" id="selectedWordLabel">Selected word: none</div>
+              <div class="chip selected" id="selectedWordLabel">מילה נבחרת: אין</div>
             </div>
           </div>
           <div class="drawer-body">
@@ -1559,19 +1717,19 @@
             </div>
             <div class="drawer-tab-content" id="tabImport" hidden>
               <div class="drawer-section">
-                <div class="drawer-section-title">Paste Lyrics</div>
-                <textarea id="pasteLyrics" rows="4" placeholder="Paste raw lyrics here, then click Process..."></textarea>
-                <button id="processLyrics" disabled>Process</button>
+                <div class="drawer-section-title">הדבקת מילים</div>
+                <textarea id="pasteLyrics" rows="4" placeholder="הדביקו כאן את מילות השיר ואז לחצו על עיבוד..."></textarea>
+                <button id="processLyrics" disabled>עיבוד</button>
               </div>
               <div class="drawer-section">
-                <div class="drawer-section-title">Find Lyrics Online</div>
+                <div class="drawer-section-title">חיפוש מילים אונליין</div>
                 <button class="btn-primary" id="searchLyrics" disabled
                         style="display:flex;align-items:center;justify-content:center;gap:8px;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="11" cy="11" r="8"/>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                   </svg>
-                  Find Lyrics Online
+                  חיפוש מילים אונליין
                 </button>
                 <div id="lyricsPreview" hidden>
                   <div style="display:flex;align-items:center;gap:6px;margin:4px 0;flex-wrap:wrap;">
@@ -1583,8 +1741,8 @@
                   </div>
                   <div class="lyrics-preview-scroll" id="lyricsPreviewText"></div>
                   <div class="btn-row" id="lyricsPreviewActions" style="gap:6px;">
-                    <button class="btn-primary" id="useLyricsBtn" style="flex:1;">Use These Lyrics</button>
-                    <button class="btn-outline" id="tryNextSourceBtn" style="flex:1;">Try next source →</button>
+                    <button class="btn-primary" id="useLyricsBtn" style="flex:1;">שימוש במילים האלה</button>
+                    <button class="btn-outline" id="tryNextSourceBtn" style="flex:1;">ניסיון במקור הבא →</button>
                   </div>
                   <div id="lyricsFallback">
                     <a id="fallbackLink" target="_blank" class="field-link"
@@ -1594,7 +1752,7 @@
                         <polyline points="15 3 21 3 21 9"/>
                         <line x1="10" y1="14" x2="21" y2="3"/>
                       </svg>
-                      Open search in browser
+                      פתיחת חיפוש בדפדפן
                     </a>
                     <button id="toggleManualSearch" class="btn-outline"
                             style="margin-top:6px;display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:6px 10px;width:auto;">
@@ -1602,20 +1760,20 @@
                         <circle cx="11" cy="11" r="8"/>
                         <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                       </svg>
-                      Manual Search
+                      חיפוש ידני
                     </button>
                   </div>
                   <div id="manualSearchPanel" hidden style="margin-top:8px;border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,0.02);">
                     <div style="display:flex;gap:6px;margin-bottom:6px;">
                       <input id="manualSearchQuery" type="text" dir="auto" placeholder='"{song}" "{artist}" מילים לשיר'
                              style="flex:1;padding:8px 10px;font-size:13px;border-radius:8px;">
-                      <button id="manualDdgBtn" class="secondary" style="white-space:nowrap;padding:6px 12px;font-size:12px;">Search DDG</button>
+                      <button id="manualDdgBtn" class="secondary" style="white-space:nowrap;padding:6px 12px;font-size:12px;">חיפוש DDG</button>
                     </div>
                     <div id="manualSearchResults" style="display:none;max-height:200px;overflow-y:auto;font-size:12px;">
                     </div>
                     <div style="display:flex;gap:6px;margin-top:6px;">
-                      <button id="manualFetchUrlBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">Fetch from URL</button>
-                      <button id="manualLlmBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">LLM Extract</button>
+                      <button id="manualFetchUrlBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">משיכה מקישור</button>
+                      <button id="manualLlmBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">חילוץ LLM</button>
                     </div>
                   </div>
                 </div>
@@ -1623,12 +1781,12 @@
             </div>
           </div>
             <div class="drawer-footer">
-            <button class="btn-primary" id="saveLyrics">Save Lyrics</button>
+            <button class="btn-primary" id="saveLyrics">שמירת מילים ✓</button>
           </div>
         </aside>
       </main>
     </div>
-    <div class="shortcut-hint" id="shortcutHint">Press 'L' to open lyrics editor</div>
+    <div class="shortcut-hint" id="shortcutHint">לחצו על L לפתיחת עורך המילים</div>
   </div>
 
   <script>
@@ -1644,7 +1802,9 @@
     const $ = (id) => document.getElementById(id);
 
     const ui = {
+      app: document.querySelector(".app"),
       leftRail: $("leftRail"),
+      workspace: document.querySelector(".workspace"),
       toggleLeft: $("toggleLeft"),
       toggleRight: $("toggleRight"),
       youtubeUrl: $("youtubeUrl"),
@@ -1759,7 +1919,7 @@
       lyricsTextDebounce: null,
       stemMixValue: 0,
       stemMixAvailable: false,
-      drawerOpen: false,
+      drawerOpen: true,
       lastSaveTimeMs: null,
       hasUnsavedChanges: false,
       clickedLineIndex: -1,
@@ -2036,8 +2196,52 @@
       return state.resolvedWords[state.selectedWordIndex] || null;
     }
 
+    function localizeUiText(rawText) {
+      const text = String(rawText ?? "");
+      const exact = {
+        "No project loaded.": "אין פרויקט טעון",
+        "Project saved without audio. Choose MP3 or paste a YouTube URL, then click Create Project.": "הפרויקט נשמר ללא שמע. בחרו MP3 או הדביקו קישור YouTube ולחצו על ייבוא פרויקט.",
+        "Creating project...": "יוצר פרויקט...",
+        "Downloading audio from YouTube...": "מוריד שמע מיוטיוב...",
+        "YouTube import complete.": "ייבוא YouTube הושלם.",
+        "Stems ready.": "ערוצי השמע מוכנים.",
+        "No lyrics found. Stems processing...": "לא נמצאו מילים. עיבוד ערוצי שמע...",
+        "Pipeline failed.": "הצינור נכשל.",
+        "Pipeline complete": "העיבוד הושלם",
+        "Pipeline idle": "העיבוד במצב המתנה",
+        "Ready": "מוכן",
+        "Load a project first.": "יש לטעון פרויקט תחילה.",
+        "Load a project with audio first.": "יש לטעון פרויקט עם שמע תחילה.",
+        "Project deleted.": "הפרויקט נמחק.",
+        "Rendering MP4...": "מייצא MP4...",
+        "No lyrics found.": "לא נמצאו מילים.",
+        "No lyrics sources available.": "לא נמצאו מקורות למילים.",
+        "Paste a YouTube URL first.": "יש להדביק קישור YouTube תחילה.",
+        "YouTube import started.": "ייבוא YouTube התחיל.",
+        "Downloading audio from YouTube...": "מוריד שמע מיוטיוב...",
+        "Stem separation": "הפרדת ערוצים",
+        "Fetching lyrics and creating project": "מביא מילים ויוצר פרויקט",
+        "Editor project ready": "פרויקט העריכה מוכן",
+      };
+      if (exact[text]) return exact[text];
+      let match = text.match(/^Ready: (\d+) words$/);
+      if (match) return `מוכן: ${match[1]} מילים`;
+      match = text.match(/^Project ready: (.+)$/);
+      if (match) return `הפרויקט מוכן: ${match[1]}`;
+      match = text.match(/^Running: (.+)\.\.\.$/);
+      if (match) return `פועל: ${match[1]}...`;
+      match = text.match(/^Pipeline complete: (.+)$/);
+      if (match) return `העיבוד הושלם: ${match[1]}`;
+      match = text.match(/^Exported (.+)$/);
+      if (match) return `יוצא: ${match[1]}`;
+      if (/Failed to fetch|NetworkError|Network error/i.test(text)) return "אין חיבור לשרת המקומי.";
+      if (/yt-dlp.*not installed|not available on PATH/i.test(text)) return "yt-dlp אינו מותקן. יש להתקין אותו כדי לייבא מיוטיוב.";
+      if (/beautifulsoup|No module named ['\"]bs4['\"]/i.test(text)) return "חסרה תלות beautifulsoup4 בסביבת Python.";
+      return text;
+    }
+
     function updateStatusChip(element, text, mode) {
-      element.textContent = text;
+      element.textContent = localizeUiText(text);
       element.className = "chip";
       if (mode) {
         element.classList.add(mode);
@@ -2045,7 +2249,7 @@
     }
 
     function renderSelectedWordLabel(selectedWord) {
-      const wordText = selectedWord ? selectedWord.text : "none";
+      const wordText = selectedWord ? selectedWord.text : "אין";
       const selectedPosition = selectedWord ? selectedWord.index + 1 : 0;
       ui.selectedWordLabel.innerHTML = "";
       const wordSpan = document.createElement("span");
@@ -2247,7 +2451,7 @@
       const total = results ? results.length : 0;
 
       if (!results || total === 0) {
-        ui.lyricsPreviewText.textContent = "No lyrics sources available.";
+        ui.lyricsPreviewText.textContent = "לא נמצאו מקורות למילים.";
         if (ui.lyricsSourceLink) { ui.lyricsSourceLink.style.display = "none"; }
         if (ui.lyricsSourceStatus) { ui.lyricsSourceStatus.style.display = "none"; }
         if (ui.lyricsDiscoveryBadge) { ui.lyricsDiscoveryBadge.style.display = "none"; }
@@ -2260,19 +2464,19 @@
 
       const safeIndex = ((index % total) + total) % total;
       const result = results[safeIndex];
-      ui.lyricsPreviewText.textContent = result.lyrics_text || result.error || "No lyrics found.";
+      ui.lyricsPreviewText.textContent = result.lyrics_text || result.error || "לא נמצאו מילים.";
 
       if (result.success && result.source_url) {
         if (ui.lyricsSourceLink) {
           ui.lyricsSourceLink.href = result.source_url;
-          ui.lyricsSourceLink.textContent = `Fetched from ${result.source}`;
+          ui.lyricsSourceLink.textContent = `נמשך מ־${result.source}`;
           ui.lyricsSourceLink.style.display = "inline";
         }
         if (ui.lyricsSourceStatus) { ui.lyricsSourceStatus.style.display = "none"; }
       } else {
         if (ui.lyricsSourceLink) { ui.lyricsSourceLink.style.display = "none"; }
         if (ui.lyricsSourceStatus) {
-          ui.lyricsSourceStatus.textContent = `${result.source}: ${result.error || "failed"}`;
+          ui.lyricsSourceStatus.textContent = `${result.source}: ${result.error || "נכשל"}`;
           ui.lyricsSourceStatus.className = "chip warn";
           ui.lyricsSourceStatus.style.display = "inline";
         }
@@ -2280,11 +2484,11 @@
 
       if (ui.lyricsDiscoveryBadge) {
         if (result.discovery_method === "ddg") {
-          ui.lyricsDiscoveryBadge.textContent = "via DuckDuckGo";
+          ui.lyricsDiscoveryBadge.textContent = "באמצעות DuckDuckGo";
           ui.lyricsDiscoveryBadge.className = "lyrics-badge ddg";
           ui.lyricsDiscoveryBadge.style.display = "inline-block";
         } else if (result.discovery_method === "direct") {
-          ui.lyricsDiscoveryBadge.textContent = "direct search";
+          ui.lyricsDiscoveryBadge.textContent = "חיפוש ישיר";
           ui.lyricsDiscoveryBadge.className = "lyrics-badge direct";
           ui.lyricsDiscoveryBadge.style.display = "inline-block";
         } else {
@@ -2294,7 +2498,7 @@
 
       if (ui.lyricsExtractionBadge) {
         if (result.extraction_method === "llm") {
-          ui.lyricsExtractionBadge.textContent = "via local LLM";
+          ui.lyricsExtractionBadge.textContent = "באמצעות LLM מקומי";
           ui.lyricsExtractionBadge.className = "lyrics-badge llm";
           ui.lyricsExtractionBadge.style.display = "inline-block";
         } else {
@@ -2306,7 +2510,7 @@
       const nextSource = results[nextIndex].source;
       ui.useLyricsBtn.hidden = !result.success;
       ui.tryNextSourceBtn.hidden = false;
-      ui.tryNextSourceBtn.textContent = `Try next: ${nextSource} →`;
+      ui.tryNextSourceBtn.textContent = `ניסיון במקור הבא: ${nextSource} →`;
       state.fetchResultIndex = safeIndex;
     }
 
@@ -2388,7 +2592,7 @@
       if (!state.projects.length) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "No saved projects";
+        option.textContent = "אין פרויקטים שמורים";
         ui.projectSelect.appendChild(option);
         return;
       }
@@ -2508,7 +2712,7 @@
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
           </svg>
-          <input class="url-input" id="youtubeUrl" type="url" dir="ltr" placeholder="Paste a YouTube link" style="padding-left:32px;">
+          <input class="url-input" id="youtubeUrl" type="url" dir="ltr" placeholder="הדבקת קישור YouTube" style="padding-left:32px;">
           <input id="audioFile" type="file" accept="audio/*" hidden>
         `;
         // Re-assign references
@@ -2531,9 +2735,9 @@
               <circle cx="6" cy="18" r="3"/>
               <circle cx="18" cy="16" r="3"/>
             </svg>
-            Browse
+            בחירת קובץ
           </span>
-          <span style="color:var(--muted);font-size:13px;padding:0 8px;">Select an audio file</span>
+          <span style="color:var(--muted);font-size:13px;padding:0 8px;">בחירת קובץ שמע</span>
           <input id="audioFile" type="file" accept="audio/*" hidden>
         `;
         // Re-assign references
@@ -2633,16 +2837,17 @@
 
       if (status === "running") {
         const stageName = payload?.stage_label || currentStage?.label || payload?.current_stage_label || "Pipeline";
-        ui.pipelineStage.textContent = stageName;
-        ui.pipelineStatusLabel.textContent = payload?.status_label || "Running...";
+        const localizedStageName = localizeUiText(stageName);
+        ui.pipelineStage.textContent = localizedStageName;
+        ui.pipelineStatusLabel.textContent = localizeUiText(payload?.status_label || "פועל...");
         ui.pipelineElapsed.textContent = payload?.elapsed_text !== undefined ? payload.elapsed_text : elapsed;
         ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
         ui.pipelineCard.classList.add("running");
-        updateStatusChip(ui.projectStatus, `Running: ${stageName}...`, "ok");
+        updateStatusChip(ui.projectStatus, `Running: ${localizedStageName}...`, "ok");
       } else if (status === "completed") {
-        ui.pipelineStage.textContent = payload?.stage_label || "Pipeline complete";
-        ui.pipelineStatusLabel.textContent = payload?.status_label || "✓";
+        ui.pipelineStage.textContent = localizeUiText(payload?.stage_label || "העיבוד הושלם");
+        ui.pipelineStatusLabel.textContent = localizeUiText(payload?.status_label || "✓");
         ui.pipelineElapsed.textContent = "";
         ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
@@ -2651,15 +2856,15 @@
         const errMsg = payload?.error || "Pipeline failed";
         const failedStage = stages.find((s) => s && s.status === "error");
         const stageName = payload?.stage_label || failedStage?.label || payload?.current_stage_label || "";
-        ui.pipelineStage.textContent = stageName ? `${stageName}: ${errMsg}` : errMsg;
-        ui.pipelineStatusLabel.textContent = payload?.status_label || "✕";
+        ui.pipelineStage.textContent = localizeUiText(stageName ? `${stageName}: ${errMsg}` : errMsg);
+        ui.pipelineStatusLabel.textContent = localizeUiText(payload?.status_label || "✕");
         ui.pipelineElapsed.textContent = "";
         ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
         ui.pipelineCard.classList.add("error");
       } else {
-        ui.pipelineStage.textContent = "Pipeline idle";
-        ui.pipelineStatusLabel.textContent = "Ready";
+        ui.pipelineStage.textContent = "העיבוד במצב המתנה";
+        ui.pipelineStatusLabel.textContent = "מוכן";
         ui.pipelineElapsed.textContent = "";
         ui.pipelineProgressFill.style.width = "0%";
         ui.pipelineCard.hidden = false;
@@ -2836,7 +3041,7 @@
       }
       ui.wavePan.min = "0";
       ui.wavePan.max = String(duration);
-      ui.wavePan.value = String(currentTime);
+      ui.wavePan.value = String(Math.max(0, duration - currentTime));
       if (ui.wavePanStart) {
         ui.wavePanStart.textContent = `Window ${formatClock(Math.max(start, 0))}`;
       }
@@ -3149,7 +3354,8 @@
 
     function timeToPercent(time) {
       const span = Math.max(state.displayWindow.end - state.displayWindow.start, 0.001);
-      return ((time - state.displayWindow.start) / span) * 100;
+      // Hebrew timing runs right-to-left: time zero is on the right edge.
+      return 100 - (((time - state.displayWindow.start) / span) * 100);
     }
 
     function isWordPlaced(index) {
@@ -3484,9 +3690,10 @@
           element.classList.add("dragging");
         }
         
-        const leftPercent = timeToPercent(word.displayStart);
-        const rightPercent = timeToPercent(word.displayEnd);
-        const widthPercent = rightPercent - leftPercent;
+        const startPercent = timeToPercent(word.displayStart);
+        const endPercent = timeToPercent(word.displayEnd);
+        const leftPercent = Math.min(startPercent, endPercent);
+        const widthPercent = Math.abs(endPercent - startPercent);
         
         element.style.left = `${leftPercent}%`;
         element.style.width = `${Math.max(widthPercent, 0.5)}%`;
@@ -3505,7 +3712,8 @@
             leftHandle.className = "resize-handle resize-handle-left";
             element.appendChild(leftHandle);
             leftHandle.addEventListener("pointerdown", (event) => {
-              beginDurationDrag(event, word.index, "left");
+              // In RTL time, the visual left edge is the word's end.
+              beginDurationDrag(event, word.index, "right");
             });
           }
           
@@ -3514,7 +3722,8 @@
             rightHandle.className = "resize-handle resize-handle-right";
             element.appendChild(rightHandle);
             rightHandle.addEventListener("pointerdown", (event) => {
-              beginDurationDrag(event, word.index, "right");
+              // In RTL time, the visual right edge is the word's start.
+              beginDurationDrag(event, word.index, "left");
             });
           }
 
@@ -3561,7 +3770,7 @@
 
       const context = canvas.getContext("2d");
       context.clearRect(0, 0, width, height);
-      context.fillStyle = "#161616";
+      context.fillStyle = "#151b24";
       context.fillRect(0, 0, width, height);
 
       if (!state.waveform || !state.waveform.peaks || !state.waveform.peaks.length) {
@@ -3579,8 +3788,8 @@
       const visibleEnd = Math.min(endTime, duration);
       const mid = height / 2;
 
-      context.strokeStyle = "#b3b3b3";
-      context.lineWidth = Math.max(1, ratio);
+      context.strokeStyle = "rgba(165, 177, 191, 0.34)";
+      context.lineWidth = Math.max(0.8, ratio * 0.8);
       context.beginPath();
 
       if (visibleEnd > visibleStart) {
@@ -3617,8 +3826,8 @@
         const startX = (timeToPercent(displayStart) / 100) * width;
         const endX = (timeToPercent(displayEnd) / 100) * width;
 
-        context.fillStyle = "rgba(255, 193, 7, 0.15)";
-        context.fillRect(startX, 0, Math.max(endX - startX, 2), height);
+        context.fillStyle = "rgba(131, 214, 160, 0.10)";
+        context.fillRect(Math.min(startX, endX), 0, Math.max(Math.abs(endX - startX), 2), height);
       }
     }
 
@@ -3669,7 +3878,7 @@
         ui.jumpWord.disabled = !hasWords || !selected || !Number.isFinite(selected.start);
       }
       if (ui.playPause) {
-        ui.playPause.textContent = ui.audio.paused ? "▶" : "⏸";
+        ui.playPause.textContent = ui.audio.paused ? "◀" : "Ⅱ";
       }
       if (ui.stemMix) {
         ui.stemMix.disabled = !state.stemMixAvailable;
@@ -3835,7 +4044,7 @@
         return;
       }
       const deltaX = event.clientX - state.playheadDrag.originX;
-      const deltaSeconds = (deltaX / state.playheadDrag.width) * state.zoomSeconds * PLAYHEAD_DRAG_SENSITIVITY;
+      const deltaSeconds = -(deltaX / state.playheadDrag.width) * state.zoomSeconds * PLAYHEAD_DRAG_SENSITIVITY;
       setPlayheadTime(state.playheadDrag.originTime + deltaSeconds);
       queueRender();
     }
@@ -3897,7 +4106,7 @@
         state._suppressClick = true;
       }
       if (state.wordDrag.hasMoved) {
-        const deltaSeconds = (deltaX / state.wordDrag.width) * state.zoomSeconds;
+        const deltaSeconds = -(deltaX / state.wordDrag.width) * state.zoomSeconds;
         setDraggedWordStart(state.wordDrag.wordIndex, state.wordDrag.originStart + deltaSeconds);
         queueRender();
       }
@@ -3973,7 +4182,7 @@
         state._suppressClick = true;
       }
       if (state.durationDrag.hasMoved) {
-        const deltaSeconds = (deltaX / state.durationDrag.width) * state.zoomSeconds;
+        const deltaSeconds = -(deltaX / state.durationDrag.width) * state.zoomSeconds;
         if (state.durationDrag.edge === "right") {
           setDraggedOuterRight(state.durationDrag.wordIndex, state.durationDrag.originEnd + deltaSeconds);
         } else if (state.durationDrag.edge === "left") {
@@ -4106,7 +4315,12 @@
     }
 
     async function fetchJson(url, options) {
-      const response = await fetch(url, options);
+      let response;
+      try {
+        response = await fetch(url, options);
+      } catch (error) {
+        throw new Error("לא ניתן להתחבר לשרת המקומי. ודאו שהעורך מופעל ונסו שוב.");
+      }
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const error = payload && payload.error ? payload.error : `Request failed: ${response.status}`;
@@ -4392,16 +4606,19 @@
         // Async path: poll pipeline for download → lyrics → stem separation
         if (responsePayload.status === "running") {
           state.pipelineAwaitingProjectLoad = true;
+          startPipelinePolling();
           try {
             const pipelineStatus = await syncPipelineStatus();
-            if (pipelineStatus.status === "running") {
-              startPipelinePolling();
-            } else if (pipelineStatus.status === "completed") {
+            if (pipelineStatus.status === "completed") {
               await stopPipelineAndLoadProject();
               updateStatusChip(ui.projectStatus, "Stems ready.", "ok");
+            } else if (pipelineStatus.status === "error") {
+              stopPipelinePolling();
+              state.pipelineAwaitingProjectLoad = false;
+              updateStatusChip(ui.projectStatus, pipelineStatus.error || "Pipeline failed.", "warn");
             }
           } catch (_) {
-            startPipelinePolling();
+            // Keep the poller alive; the worker may still be creating its status file.
           }
           return;
         }
@@ -4645,7 +4862,7 @@
       }
       const rect = ui.waveCanvas.getBoundingClientRect();
       const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-      const target = state.displayWindow.start + ratio * (state.displayWindow.end - state.displayWindow.start);
+      const target = state.displayWindow.end - ratio * (state.displayWindow.end - state.displayWindow.start);
       setPlayheadTime(target);
       renderAll();
     }
@@ -4785,7 +5002,10 @@
     function toggleDrawer() {
       state.drawerOpen = !state.drawerOpen;
       if (ui.rightDrawer) {
-        ui.rightDrawer.hidden = !state.drawerOpen;
+        ui.rightDrawer.classList.toggle("collapsed", !state.drawerOpen);
+      }
+      if (ui.workspace) {
+        ui.workspace.classList.toggle("drawer-collapsed", !state.drawerOpen);
       }
       if (ui.toggleRight) {
         ui.toggleRight.textContent = state.drawerOpen ? "▶" : "◀";
@@ -4802,7 +5022,10 @@
     function toggleLeftRail() {
       state.railOpen = !state.railOpen;
       if (ui.leftRail) {
-        ui.leftRail.hidden = !state.railOpen;
+        ui.leftRail.classList.toggle("collapsed", !state.railOpen);
+      }
+      if (ui.app) {
+        ui.app.classList.toggle("rail-collapsed", !state.railOpen);
       }
       if (ui.toggleLeft) {
         ui.toggleLeft.textContent = state.railOpen ? "◀" : "▶";
@@ -4861,7 +5084,7 @@
 
       const lines = getResolvedLines();
       if (!lines.length) {
-        ui.lyricsList.innerHTML = `<div style="padding: 16px; text-align: center; color: var(--muted)">No lyrics found.</div>`;
+        ui.lyricsList.innerHTML = `<div style="padding: 16px; text-align: center; color: var(--muted)">לא נמצאו מילים.</div>`;
         return;
       }
 
@@ -5133,7 +5356,7 @@
           const title = (ui.projectTitle?.value || ui.projectName?.value || "").trim();
           if (!title) return;
           ui.searchLyrics.disabled = true;
-          ui.searchLyrics.textContent = "Searching...";
+          ui.searchLyrics.textContent = "מחפש...";
           try {
             const res = await fetchJson("/api/fetch_lyrics", {
               method: "POST",
@@ -5161,7 +5384,7 @@
             updateStatusChip(ui.projectStatus, error.message, "warn");
           } finally {
             ui.searchLyrics.disabled = false;
-             ui.searchLyrics.textContent = "Find Lyrics Online";
+             ui.searchLyrics.textContent = "חיפוש מילים אונליין";
           }
         });
       }
@@ -5186,7 +5409,7 @@
           const panel = ui.manualSearchPanel;
           const hidden = panel.hasAttribute("hidden");
           panel.hidden = !hidden;
-          ui.toggleManualSearch.textContent = hidden ? "▲ Hide Search" : "Manual Search";
+          ui.toggleManualSearch.textContent = hidden ? "▲ הסתרת חיפוש" : "חיפוש ידני";
           if (hidden) {
             const title = (ui.projectTitle?.value || ui.projectName?.value || "").trim();
             if (title) {
@@ -5203,7 +5426,7 @@
           const query = ui.manualSearchQuery.value.trim();
           if (!query) return;
           ui.manualDdgBtn.disabled = true;
-          ui.manualDdgBtn.textContent = "Searching...";
+          ui.manualDdgBtn.textContent = "מחפש...";
           try {
             const res = await fetchJson("/api/lyrics/search_ddg", {
               method: "POST",
@@ -5214,7 +5437,7 @@
             container.innerHTML = "";
             container.style.display = "block";
             if (!res.results || res.results.length === 0) {
-              container.innerHTML = '<div style="color:var(--muted);padding:8px;">No results found.</div>';
+              container.innerHTML = '<div style="color:var(--muted);padding:8px;">לא נמצאו תוצאות.</div>';
               return;
             }
             res.results.slice(0, 20).forEach((r, i) => {
@@ -5264,7 +5487,7 @@
             updateStatusChip(ui.projectStatus, error.message, "warn");
           } finally {
             ui.manualDdgBtn.disabled = false;
-            ui.manualDdgBtn.textContent = "Search DDG";
+            ui.manualDdgBtn.textContent = "חיפוש DDG";
           }
         });
       }
@@ -5276,7 +5499,7 @@
             return;
           }
           ui.manualFetchUrlBtn.disabled = true;
-          ui.manualFetchUrlBtn.textContent = "Fetching...";
+          ui.manualFetchUrlBtn.textContent = "מושך...";
           try {
             const res = await fetchJson("/api/lyrics/fetch_url", {
               method: "POST",
@@ -5304,7 +5527,7 @@
             updateStatusChip(ui.projectStatus, error.message, "warn");
           } finally {
             ui.manualFetchUrlBtn.disabled = false;
-            ui.manualFetchUrlBtn.textContent = "Fetch from URL";
+            ui.manualFetchUrlBtn.textContent = "משיכה מקישור";
           }
         });
       }
@@ -5322,7 +5545,7 @@
           const song = parts.length >= 2 ? parts[0] : title;
           const artist = parts.length >= 2 ? parts[1] : "";
           ui.manualLlmBtn.disabled = true;
-          ui.manualLlmBtn.textContent = "LLM extracting...";
+          ui.manualLlmBtn.textContent = "מחלץ עם LLM...";
           try {
             const res = await fetchJson("/api/lyrics/llm_extract", {
               method: "POST",
@@ -5350,7 +5573,7 @@
             updateStatusChip(ui.projectStatus, error.message, "warn");
           } finally {
             ui.manualLlmBtn.disabled = false;
-            ui.manualLlmBtn.textContent = "LLM Extract";
+            ui.manualLlmBtn.textContent = "חילוץ LLM";
           }
         });
       }
@@ -5377,7 +5600,8 @@
       // resetAll button removed
       ui.waveCanvas.addEventListener("click", seekFromWaveform);
       ui.wavePan.addEventListener("input", (event) => {
-        panWaveformWindow(Number(event.target.value || 0));
+        const duration = getAudioDuration();
+        panWaveformWindow(Math.max(0, duration - Number(event.target.value || 0)));
       });
       ui.playhead.addEventListener("pointerdown", beginPlayheadDrag);
       document.addEventListener("keydown", handleEditorShortcut);
