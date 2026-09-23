@@ -1491,6 +1491,37 @@ def test_timing_editor_resets_stale_pipeline_job_and_allows_import(tmp_path: Pat
     assert payload["ok"] is True
 
 
+def test_timing_editor_youtube_import_publishes_download_failure(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    input_dir = tmp_path / "input"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+    logs_dir.mkdir()
+    input_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+    app = create_app(config_path)
+    app.testing = True
+    client = app.test_client()
+
+    with patch(
+        "timing_editor._download_youtube_audio",
+        side_effect=RuntimeError("yt-dlp failed to download the requested audio"),
+    ):
+        response = client.post("/api/import/youtube", json={"youtube_url": "https://youtube.com/watch?v=abc"})
+
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "yt-dlp failed to download the requested audio"
+    status = client.get("/api/pipeline/status").get_json()
+    assert status["status"] == "error"
+    assert status["error"] == "yt-dlp failed to download the requested audio"
+    assert next(stage for stage in status["stages"] if stage["key"] == "download_convert")["status"] == "error"
+
+
 def test_timing_editor_pipeline_stop_terminates_worker_and_resets_state(tmp_path: Path) -> None:
     temp_dir = tmp_path / "temp"
     output_dir = tmp_path / "output"

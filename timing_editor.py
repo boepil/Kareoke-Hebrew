@@ -47,6 +47,18 @@ from modules.subtitle_builder import (
 
 LOGGER = logging.getLogger(__name__)
 
+YOUTUBE_METADATA_TIMEOUT_SECONDS = 60
+YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS = 600
+
+
+def _youtube_runtime_args() -> list[str]:
+    """Enable yt-dlp's YouTube challenge solver with an installed JS runtime."""
+    for runtime in ("deno", "node"):
+        executable = shutil.which(runtime)
+        if executable:
+            return ["--js-runtimes", f"{runtime}:{executable}", "--remote-components", "ejs:github"]
+    return []
+
 
 @dataclass(frozen=True)
 class EditorPaths:
@@ -867,13 +879,24 @@ def _fetch_youtube_metadata(youtube_url: str) -> dict[str, str]:
         "--dump-single-json",
         "--no-playlist",
         "--no-warnings",
+        "--socket-timeout",
+        "30",
+        *_youtube_runtime_args(),
         normalized_url,
     ]
 
     try:
-        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        completed = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=YOUTUBE_METADATA_TIMEOUT_SECONDS,
+        )
     except FileNotFoundError as exc:
         raise RuntimeError("yt-dlp is not installed or not available on PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out while reading YouTube metadata") from exc
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
         stdout = (exc.stdout or "").strip()
@@ -951,7 +974,12 @@ def _download_youtube_audio(paths: EditorPaths, youtube_url: str) -> Path:
         "mp3",
         "--audio-quality",
         "0",
+        "--socket-timeout",
+        "30",
+        "--retries",
+        "3",
         "--no-progress",
+        *_youtube_runtime_args(),
         "--print",
         "after_move:filepath",
         "--output",
@@ -960,9 +988,17 @@ def _download_youtube_audio(paths: EditorPaths, youtube_url: str) -> Path:
     ]
 
     try:
-        completed = subprocess.run(command, check=True, capture_output=True, text=True)
+        completed = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS,
+        )
     except FileNotFoundError as exc:
         raise RuntimeError("yt-dlp is not installed or not available on PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Timed out while downloading audio from YouTube") from exc
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
         stdout = (exc.stdout or "").strip()
@@ -3707,6 +3743,23 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         set_pipeline_job(**initial_job)
         _update_pipeline_stage(base_paths, initial_job, "download_convert", "running", "Downloading audio from YouTube...")
 
+        def fail_pipeline(exc: Exception) -> None:
+            """Publish background import failures so the UI cannot remain stuck running."""
+            error_text = str(exc).strip() or exc.__class__.__name__
+            failed_job = _read_pipeline_job(base_paths)
+            failed_stage = str(failed_job.get("current_stage_key", "")).strip() or "download_convert"
+            failed_job = _update_pipeline_stage(base_paths, failed_job, failed_stage, "error", error_text)
+            set_pipeline_job(
+                status="error",
+                error=error_text,
+                current_stage_key="",
+                current_stage_label="",
+                stage_started_at=None,
+                updated_at=_timestamp(),
+                stages=failed_job.get("stages", _default_pipeline_job()["stages"]),
+            )
+            LOGGER.exception("YouTube import failed for job %s: %s", job_id, error_text)
+
         if app.testing:
             try:
                 setup_info = _setup_youtube_project(raw_payload, job_id)
@@ -3720,18 +3773,21 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
                 )
                 return 200, result
             except ValueError as exc:
+                fail_pipeline(exc)
                 return 400, {"error": str(exc), "job_id": job_id}
             except RuntimeError as exc:
+                fail_pipeline(exc)
                 return 409, {"error": str(exc), "job_id": job_id}
             except Exception as exc:
+                fail_pipeline(exc)
                 return 500, {"ok": False, "job_id": job_id, "error": str(exc)}
 
         def worker() -> None:
             try:
                 _setup_youtube_project(raw_payload, job_id)
                 _run_youtube_import_job(raw_payload, job_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                fail_pipeline(exc)
 
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()

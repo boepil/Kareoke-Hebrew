@@ -1426,11 +1426,11 @@
     .drawer-tab { font-size: 14px; font-weight: 700; }
     .lyrics-line { font-size: 16px; }
     .lyrics-words { font-size: 16px; font-weight: 600; }
-    .shell { width: min(1680px, calc(100vw - 24px)); margin: 12px auto; padding: 12px; border: 0; background: transparent; box-shadow: none; }
-    .app { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; min-height: calc(100vh - 100px); align-items: stretch; }
+    .shell { width: min(1680px, calc(100vw - 24px)); height: calc(100vh - 32px); max-height: calc(100vh - 32px); margin: 12px auto; padding: 12px; border: 0; background: transparent; box-shadow: none; display: flex; flex-direction: column; overflow: hidden; }
+    .app { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; flex: 1 1 auto; min-height: 0; height: auto; align-items: stretch; }
     .app.rail-collapsed { grid-template-columns: 58px minmax(0, 1fr); }
     .rail { width: auto; min-width: 0; flex: none; overflow: hidden; }
-    .rail > .section { height: 100%; min-height: calc(100vh - 100px); padding: 14px; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
+    .rail > .section { height: 100%; min-height: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
     .rail-header { min-height: 40px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .rail-header svg { color: var(--accent); stroke: currentColor; }
     .rail-header h2 { font-size: 14px; }
@@ -1456,10 +1456,10 @@
     .pipeline-card { padding: 11px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-input); }
     .status-pill { padding-top: 0; }
     .chip { min-height: 34px; padding: 6px 10px; border-color: var(--border-2); background: var(--bg-input); }
-    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; min-width: 0; align-items: stretch; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; min-width: 0; min-height: 0; align-items: stretch; }
     .workspace.drawer-collapsed { grid-template-columns: minmax(0, 1fr) 58px; }
-    .workspace > .section { min-height: calc(100vh - 100px); padding: 14px; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
-    .editor { gap: 12px; }
+    .workspace > .section { min-height: 0; height: 100%; padding: 14px; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
+    .editor { gap: 12px; min-height: 0; overflow: hidden; }
     .editor-head { min-height: 44px; }
     .project-title-input { min-height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-input); font-size: 20px; }
     .header-icon { width: 40px; height: 40px; margin-right: 0; border: 1px solid var(--border-2); border-radius: 10px; font-size: 16px; }
@@ -1481,7 +1481,7 @@
     .wave-transport { min-height: 48px; margin-top: 8px; }
     .time-readout { min-width: 112px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-2); direction: ltr; }
     .wave-transport input[type="range"] { min-height: 24px; direction: ltr; }
-    .drawer { width: auto; min-width: 0; flex: none; height: auto; min-height: calc(100vh - 100px); border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
+    .drawer { width: auto; min-width: 0; flex: none; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
     .drawer-tabs { display: grid; grid-template-columns: 40px 1fr 1fr; gap: 5px; padding: 6px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
     .drawer-tab { min-height: 42px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; font-size: 12px; }
     .drawer-tab.active { color: var(--accent); background: var(--bg-input-hover); border-bottom: 0; }
@@ -1490,8 +1490,8 @@
     .drawer-header-title { display: none; }
     .drawer-header-meta { width: 100%; }
     .drawer-header-meta .chip { width: 100%; min-height: 44px; justify-content: space-between; padding: 8px 12px; border-color: rgba(255,149,109,.30); background: rgba(255,149,109,.10); color: var(--text); font-size: 13px; }
-    .drawer-body { min-height: 0; flex: 1; }
-    .drawer-tab-content { min-height: 0; }
+    .drawer-body { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+    .drawer-tab-content { min-height: 0; height: 100%; display: flex; flex-direction: column; }
     .drawer-content { min-height: 0; flex: 1; padding: 6px 0; overflow-y: auto; }
     .lyrics-line { padding: 8px 14px; font-size: 15px; }
     .drawer-footer { margin-top: auto; padding: 12px 14px 14px; border-top: 1px solid var(--border); }
@@ -1516,7 +1516,7 @@
       .workspace.drawer-collapsed { grid-template-columns: minmax(0, 1fr) 58px; }
     }
     @media (max-width: 940px) {
-      .shell { width: 100%; margin: 0; padding: 8px; }
+      .shell { width: 100%; height: auto; max-height: none; margin: 0; padding: 8px; overflow: visible; }
       .app { display: block; min-height: 100vh; }
       .rail { display: none; }
       .workspace { display: block; }
@@ -1807,6 +1807,7 @@
     const CONTACT_THRESHOLD_MS = 50;
     const DEFAULT_ZOOM_SECONDS = 18;
     const MIN_ZOOM_SECONDS = 0.35;
+    const MAX_WORD_TIMELINE_SECONDS = 6.0;
     const SENTENCE_GAP = 0.2;
     const MIN_WORD_ORDER_GAP = 0.001;
     const PLAYHEAD_DRAG_SENSITIVITY = 0.2;
@@ -2077,7 +2078,7 @@
 
     function getWordDuration(baseWord) {
       const duration = baseWord.end - baseWord.start;
-      return duration > 0.01 ? duration : 0.12;
+      return duration > 0.01 ? Math.min(duration, MAX_WORD_TIMELINE_SECONDS) : 0.12;
     }
 
     function syncResolvedWords() {
@@ -2116,7 +2117,10 @@
         let end = isCommitted
           ? sanitizeOverrideTime(Number.isFinite(override.end) ? override.end : word.end)
           : null;
-        const explicitEnd = isCommitted && Number.isFinite(override.explicit_end) ? sanitizeOverrideTime(override.explicit_end) : undefined;
+        const maxEnd = Number.isFinite(start) ? start + MAX_WORD_TIMELINE_SECONDS : null;
+        const explicitEnd = isCommitted && Number.isFinite(override.explicit_end) && Number.isFinite(maxEnd)
+          ? Math.min(sanitizeOverrideTime(override.explicit_end), maxEnd)
+          : undefined;
 
         return {
           ...word,
@@ -2141,30 +2145,31 @@
         if (isNextPlaced && nextWord.line_index === word.line_index) {
           return {
             ...word,
-            end: Number(nextWord.start.toFixed(3)),
+            end: Number(Math.min(nextWord.start, word.start + MAX_WORD_TIMELINE_SECONDS).toFixed(3)),
           };
         }
 
         if (word._explicitEnd !== undefined) {
-           return { ...word, end: word._explicitEnd };
+           return { ...word, end: Number(Math.min(word._explicitEnd, word.start + MAX_WORD_TIMELINE_SECONDS).toFixed(3)) };
         }
         
         // Cap natural vocal duration at 2.0 seconds to prevent tails extending into silence
-        const vocalEndCapped = word.start + Math.min(word.duration, 2.0);
+        const vocalEndCapped = word.start + Math.min(word.duration, 2.0, MAX_WORD_TIMELINE_SECONDS);
+        const maxWordEnd = word.start + MAX_WORD_TIMELINE_SECONDS;
 
         // Last word of the song gets 2.0s visual tail (nothing after it to chain to)
         if (isLastWord) {
           return {
             ...word,
-            end: Number((vocalEndCapped + 2.0).toFixed(3)),
+            end: Number(Math.min(vocalEndCapped + 2.0, maxWordEnd).toFixed(3)),
           };
         }
 
         // Next word is placed: gapless chain (same line) or sentence gap (different line)
         if (isNextPlaced) {
           const end = nextWord.line_index !== word.line_index
-            ? Math.min(vocalEndCapped + SENTENCE_GAP, nextWord.start)
-            : nextWord.start;
+            ? Math.min(vocalEndCapped + SENTENCE_GAP, nextWord.start, maxWordEnd)
+            : Math.min(nextWord.start, maxWordEnd);
           return {
             ...word,
             end: Number(end.toFixed(3)),
@@ -2174,7 +2179,7 @@
         // No explicit end, not last, no next placed: use capped vocal end
         return {
           ...word,
-          end: Number(vocalEndCapped.toFixed(3)),
+          end: Number(Math.min(vocalEndCapped, maxWordEnd).toFixed(3)),
         };
       });
 
@@ -3109,7 +3114,10 @@
       const previous = nextWords[index - 1] || null;
       const minStart = previous && Number.isFinite(previous.start) ? previous.start + MIN_WORD_ORDER_GAP : 0;
       const duration = getAudioDuration();
-      const wordDuration = Math.max(current.duration || getWordDuration(state.baseWords[index] || current), 0.12);
+      const wordDuration = Math.min(
+        Math.max(current.duration || getWordDuration(state.baseWords[index] || current), 0.12),
+        MAX_WORD_TIMELINE_SECONDS,
+      );
       const clampedStart = clamp(targetStart, minStart, Math.max(duration - wordDuration, minStart));
 
       current.start = Number(clampedStart.toFixed(3));
@@ -3406,28 +3414,28 @@
       if (isPlaced && Number.isFinite(word.end)) {
         return word.end;
       }
-      const vocalEnd = startTime + Math.max(word.duration || 0.12, 0.12);
-      const vocalEndCapped = startTime + Math.min(word.duration || 0.12, 2.0);
+      const vocalEndCapped = startTime + Math.min(word.duration || 0.12, 2.0, MAX_WORD_TIMELINE_SECONDS);
+      const maxWordEnd = startTime + MAX_WORD_TIMELINE_SECONDS;
       const nextWord = state.resolvedWords[index + 1];
       const isLastWord = index === state.resolvedWords.length - 1;
       const isNextPlaced = nextWord && isWordPlaced(index + 1);
       // Last word of the song gets 2.0s visual tail
       if (isLastWord) {
-        return vocalEndCapped + 2.0;
+        return Math.min(vocalEndCapped + 2.0, maxWordEnd);
       }
       // Next word is placed: gapless chain (same line) or sentence gap (different line)
       if (isNextPlaced) {
         const nextStart = getDisplayStartForWord(index + 1);
         if (!Number.isFinite(nextStart)) {
-          return vocalEndCapped + 2.0;
+          return Math.min(vocalEndCapped + 2.0, maxWordEnd);
         }
         if (word.line_index === nextWord.line_index) {
-          return nextStart; // same line: gapless
+          return Math.min(nextStart, maxWordEnd); // same line: gapless, capped
         }
-        return Math.min(vocalEndCapped + SENTENCE_GAP, nextStart); // sentence gap
+        return Math.min(vocalEndCapped + SENTENCE_GAP, nextStart, maxWordEnd); // sentence gap
       }
       // Unplaced or no next: use capped vocal end
-      return vocalEndCapped;
+      return Math.min(vocalEndCapped, maxWordEnd);
     }
 
     function getActivePreviewWord() {
@@ -4284,10 +4292,10 @@
 
       const minEnd = originalStart + minWidth;
       
-      let maxEnd = getAudioDuration() || 9999;
+      let maxEnd = Math.min(getAudioDuration() || 9999, originalStart + MAX_WORD_TIMELINE_SECONDS);
       const nextWord = index < state.resolvedWords.length - 1 ? state.resolvedWords[index + 1] : null;
       if (nextWord && isWordPlaced(index + 1) && nextWord.line_index !== word.line_index) {
-        maxEnd = nextWord.start;
+        maxEnd = Math.min(maxEnd, nextWord.start);
       }
 
       const clampedEnd = Math.min(Math.max(targetEnd, minEnd), maxEnd);
@@ -4310,7 +4318,10 @@
       const minWidth = Math.max(0.1, 20 * state.zoomSeconds / layerWidthPx);
 
       const minTime = leftWord.start + minWidth;
-      const maxTime = rightWord.end - minWidth;
+      const maxTime = Math.min(
+        rightWord.end - minWidth,
+        leftWord.start + MAX_WORD_TIMELINE_SECONDS,
+      );
 
       const clampedTime = Math.min(Math.max(targetTime, minTime), maxTime);
 
