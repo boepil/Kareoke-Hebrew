@@ -1925,12 +1925,18 @@
       exportPoller: null,
       pipelinePoller: null,
       pipelineRunning: false,
+      pipelineMode: "",
+      pipelineActiveJobId: "",
+      pipelineStemSoundJobId: "",
+      pipelineAiSoundJobId: "",
       pipelineAwaitingProjectLoad: false,
       pipelineLoadingProject: false,
       exportLocalStartMs: null,
       outputVideoPath: null,
       outputVideoAvailable: false,
       exportRunning: false,
+      exportSoundArmed: false,
+      exportSoundJobKey: "",
       lyricsTextDebounce: null,
       stemMixValue: 0,
       stemMixAvailable: false,
@@ -1945,6 +1951,27 @@
       lyricsSnapshotTimer: null,
       pendingLyricsSnapshot: null,
     };
+
+    const COMPLETION_SOUND_URLS = {
+      beep: "/api/sounds/beep.mp3",
+    };
+    const completionSoundPlayers = {};
+
+    function playCompletionSound(kind) {
+      const url = COMPLETION_SOUND_URLS[kind];
+      if (!url) return;
+      let player = completionSoundPlayers[kind];
+      if (!player) {
+        player = new Audio(url);
+        player.preload = "auto";
+        completionSoundPlayers[kind] = player;
+      }
+      player.currentTime = 0;
+      const playResult = player.play();
+      if (playResult && typeof playResult.catch === "function") {
+        playResult.catch(() => {});
+      }
+    }
 
     function clamp(value, min, max) {
       return Math.min(Math.max(value, min), max);
@@ -2680,6 +2707,12 @@
         state.exportRunning = false;
         state.outputVideoPath = payload?.output_video || null;
         state.outputVideoAvailable = Boolean(state.outputVideoPath);
+        const exportSoundJobKey = String(payload?.started_at || payload?.output_video || "");
+        if (state.exportSoundArmed && exportSoundJobKey && state.exportSoundJobKey !== exportSoundJobKey) {
+          state.exportSoundJobKey = exportSoundJobKey;
+          state.exportSoundArmed = false;
+          playCompletionSound("beep");
+        }
         renderShowVideoButton();
         renderPipelineStatus({
           status: "completed",
@@ -2899,8 +2932,28 @@
       }
     }
 
+    function handlePipelineCompletionSounds(payload) {
+      const jobId = String(payload?.job_id || "");
+      if (!jobId || jobId !== state.pipelineActiveJobId) return;
+      const stages = Array.isArray(payload?.stages) ? payload.stages : [];
+      const stemStage = stages.find((stage) => stage?.key === "stem_separation");
+      if (stemStage?.status === "done" && state.pipelineStemSoundJobId !== jobId) {
+        state.pipelineStemSoundJobId = jobId;
+        playCompletionSound("beep");
+      }
+      if (
+        state.pipelineMode === "ai"
+        && payload?.status === "completed"
+        && state.pipelineAiSoundJobId !== jobId
+      ) {
+        state.pipelineAiSoundJobId = jobId;
+        playCompletionSound("beep");
+      }
+    }
+
     async function syncPipelineStatus() {
       const payload = await fetchJson(`/api/pipeline/status?t=${Date.now()}`);
+      handlePipelineCompletionSounds(payload);
       if (!state.exportRunning) {
         renderPipelineStatus(payload);
       }
@@ -2969,6 +3022,8 @@
       }
 
       ui.aiFirstPass.disabled = true;
+      state.pipelineMode = "ai";
+      state.pipelineActiveJobId = "";
       state.pipelineAwaitingProjectLoad = true;
       updateStatusChip(ui.projectStatus, "AI First Pass started. Watching progress...", "ok");
 
@@ -2976,6 +3031,8 @@
         const responsePayload = await fetchJson("/api/pipeline/first-pass", {
           method: "POST",
         });
+        state.pipelineActiveJobId = String(responsePayload?.job_id || "");
+        handlePipelineCompletionSounds(responsePayload);
         if (responsePayload.status === "running") {
           try {
             const pipelineStatus = await syncPipelineStatus();
@@ -4535,6 +4592,9 @@
 
       try {
         const responsePayload = await fetchJson("/api/import/audio-auto", { method: "POST", body: form });
+        state.pipelineMode = "import";
+        state.pipelineActiveJobId = String(responsePayload?.job_id || "");
+        handlePipelineCompletionSounds(responsePayload);
         
         // Clear the file input immediately after successful upload
         ui.audioFile.value = "";
@@ -4612,6 +4672,9 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        state.pipelineMode = "import";
+        state.pipelineActiveJobId = String(responsePayload?.job_id || "");
+        handlePipelineCompletionSounds(responsePayload);
         ui.youtubeUrl.value = "";
         
         // If project is already fully built (synchronous testing/dev mode),
@@ -4783,6 +4846,8 @@
           }),
         });
         state.exportLocalStartMs = Date.now();
+        state.exportSoundArmed = true;
+        state.exportSoundJobKey = "";
         let payload = await fetchJson("/api/export/mp4", { method: "POST" });
         renderExportStatus(payload);
         startExportPolling();

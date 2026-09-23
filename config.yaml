@@ -13,7 +13,7 @@ audio_extractor:
 
 separator:
   demucs_module: demucs.separate
-  model_name: htdemucs
+  model_name: htdemucs_ft
   two_stems: vocals
   device: cpu
   shifts: 0

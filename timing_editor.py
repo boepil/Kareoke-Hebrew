@@ -14,6 +14,7 @@ import re
 import signal
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -875,7 +876,9 @@ def _fetch_youtube_metadata(youtube_url: str) -> dict[str, str]:
         raise ValueError("YouTube URL field only accepts youtube.com or youtu.be links")
 
     command = [
-        "yt-dlp",
+        sys.executable,
+        "-m",
+        "yt_dlp",
         "--dump-single-json",
         "--no-playlist",
         "--no-warnings",
@@ -967,7 +970,9 @@ def _download_youtube_audio(paths: EditorPaths, youtube_url: str) -> Path:
     paths.input_dir.mkdir(parents=True, exist_ok=True)
     output_template = paths.input_dir / "%(title)s [%(id)s].%(ext)s"
     command = [
-        "yt-dlp",
+        sys.executable,
+        "-m",
+        "yt_dlp",
         "--no-playlist",
         "--extract-audio",
         "--audio-format",
@@ -3913,6 +3918,16 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         if not base_paths.ui_path.exists():
             return _json_response({"error": f"UI file not found: {base_paths.ui_path}"}, status=404)
         return send_file(base_paths.ui_path)
+
+    @app.get("/api/sounds/<sound_name>")
+    def api_completion_sound(sound_name: str) -> Response:
+        allowed_sounds = {"beep.mp3", "commision.mp3"}
+        if sound_name not in allowed_sounds:
+            return _json_response({"error": "Sound not found"}, status=404)
+        sound_path = base_paths.root_dir / sound_name
+        if not sound_path.exists():
+            return _json_response({"error": f"Sound asset not found: {sound_path}"}, status=404)
+        return send_file(sound_path, mimetype="audio/mpeg", conditional=True)
 
     @app.get("/api/manifest")
     def api_manifest() -> Response:
