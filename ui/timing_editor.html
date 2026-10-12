@@ -1409,8 +1409,8 @@
     }
     input, select, textarea { min-height: 44px; border-radius: 12px; border-width: 1px; }
     #zoomOut, #zoomIn, #zoomReset { min-height: 44px; height: 44px; }
-    .app-topbar { display: flex; align-items: center; gap: 14px; min-height: 62px; margin-bottom: 14px; direction: rtl; }
-    .app-brand { display: flex; align-items: center; gap: 11px; min-width: 190px; }
+    .app-topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 62px; margin-bottom: 14px; direction: rtl; }
+    .app-brand { display: flex; align-items: center; gap: 11px; min-width: 220px; justify-content: flex-end; }
     .app-brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; color: #241612; background: linear-gradient(145deg, #ffb18e, var(--accent)); box-shadow: 0 8px 22px rgba(255,149,109,.24); text-decoration: none; }
     .app-brand-mark:hover { filter: brightness(1.08); transform: translateY(-1px); }
     .video-player-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(5, 8, 13, .86); }
@@ -1422,13 +1422,7 @@
     .app-brand-copy strong { display: block; font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
     .app-brand-copy span { display: block; color: var(--muted-2); font-size: 11px; }
     .app-title { flex: 1; min-width: 0; text-align: center; }
-    .app-title small { display: block; color: var(--muted-2); font-size: 11px; }
-    .app-title .project-title-input { width: min(520px, 100%); min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 24px; font-weight: 800; line-height: 1.2; }
-    .app-actions { display: flex; align-items: center; gap: 8px; min-width: 190px; }
-    .app-actions .btn-primary { width: auto; min-width: 96px; padding-inline: 16px; }
-    .app-actions .top-save { background: var(--green); border-color: var(--green); color: #102419; }
-    .app-actions .top-save:hover:not(:disabled) { background: #a0e2b5; border-color: #a0e2b5; }
-    .app-actions .top-export { background: var(--accent); border-color: var(--accent); color: #241612; }
+    .app-title .project-title-input { width: min(600px, 100%); min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 24px; font-weight: 800; line-height: 1.2; text-align: center; }
     .rail-header { display: none; }
     .project-section .sidebar-label { display: none; }
     .sidebar-section { font-size: 14px; }
@@ -1493,9 +1487,16 @@
     .time-readout { min-width: 112px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-2); direction: ltr; }
     .wave-transport input[type="range"] { min-height: 24px; direction: ltr; }
     .drawer { width: auto; min-width: 0; flex: none; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
-    .drawer-tabs { display: grid; grid-template-columns: 40px 1fr 1fr 1fr; gap: 5px; padding: 6px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
-    .drawer-tab { min-height: 42px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; font-size: 12px; }
+    .drawer-tabs { display: grid; grid-template-columns: 40px 1fr 1fr; gap: 5px; padding: 6px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+    .drawer.library-mode .drawer-tabs { grid-template-columns: 40px 1fr; }
+    .drawer-tab { min-height: 42px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; }
     .drawer-tab.active { color: var(--accent); background: var(--bg-input-hover); border-bottom: 0; }
+    .drawer-tab[hidden] { display: none !important; }
+    .drawer.library-mode .drawer-tab[data-tab="editor"],
+    .drawer.library-mode .drawer-tab[data-tab="import"] { display: none !important; }
+    .drawer:not(.library-mode) .drawer-tab[data-tab="library"] { display: none !important; }
+    .drawer.library-mode .drawer-footer { display: none !important; }
+    .drawer.library-mode .drawer-header { display: none !important; }
     .drawer-close { display: none; }
     .drawer-header { display: flex; padding: 12px 14px 0; border-bottom: 0; }
     .drawer-header-title { display: none; }
@@ -1756,34 +1757,29 @@
 <body>
   <div class="shell">
     <header class="app-topbar">
+      <div class="mode-switcher" id="modeSwitcher">
+        <button type="button" class="mode-btn active" id="modeEditorBtn" data-mode="editor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9"/>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+          עורך תזמונים
+        </button>
+        <button type="button" class="mode-btn" id="modeLibraryBtn" data-mode="library">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          ספריית וידאו
+        </button>
+      </div>
+      <div class="app-title">
+        <input id="projectTitle" class="project-title-input" type="text" placeholder="זמר / שם פרויקט">
+      </div>
       <div class="app-brand">
+        <div class="app-brand-copy"><strong>Karaoke Studio</strong><span>iPad studio</span></div>
         <a class="app-brand-mark" id="youtubeChannelLink" href="https://www.youtube.com/@IsraeliMusic/playlists" title="Israeli Music playlists on YouTube" aria-label="Open Israeli Music playlists on YouTube">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.6 3.6 12 3.6 12 3.6s-7.6 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.8.5 9.4.5 9.4.5s7.6 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.6V8.4l6.3 3.6-6.3 3.6Z"/></svg>
         </a>
-        <div class="app-brand-copy"><strong>Karaoke Studio</strong><span>iPad studio</span></div>
-      </div>
-      <div class="app-title">
-        <div class="mode-switcher" id="modeSwitcher">
-          <button type="button" class="mode-btn active" id="modeEditorBtn" data-mode="editor">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 20h9"/>
-              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-            </svg>
-            עורך תזמונים
-          </button>
-          <button type="button" class="mode-btn" id="modeLibraryBtn" data-mode="library">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="5 3 19 12 5 21 5 3"/>
-            </svg>
-            ספריית וידאו
-          </button>
-        </div>
-        <small id="projectSubtitle">פרויקט פעיל</small>
-        <input id="projectTitle" class="project-title-input" type="text" placeholder="זמר / שם פרויקט">
-      </div>
-      <div class="app-actions">
-        <button class="btn-primary top-save" id="saveProject">שמירת פרויקט ✓</button>
-        <button class="btn-primary top-export" id="exportMp4">ייצוא MP4</button>
       </div>
     </header>
     <div class="app">
@@ -1799,7 +1795,7 @@
             <h2>סטודיו קריוקי</h2>
           </div>
 
-          <!-- Project -->
+            <!-- Project -->
           <div class="sidebar-section project-section">
             <div class="sidebar-label">פרויקט</div>
             <div class="project-row">
@@ -1816,16 +1812,11 @@
               </div>
               <button class="panel-toggle project-toggle" id="toggleLeft" aria-label="סגירת לוח הפרויקט" title="סגירת לוח הפרויקט">‹</button>
             </div>
-            <div class="btn-row">
+            <div class="stack" style="gap:8px;margin-top:4px;">
+              <button class="btn-primary top-save" id="saveProject">שמירת פרויקט ✓</button>
               <button class="btn-danger" id="deleteProject">מחיקת פרויקט</button>
+              <button class="btn-primary top-export" id="exportMp4">ייצוא MP4</button>
             </div>
-            <button class="btn-outline" id="showVideo" disabled>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
-              פתיחת וידאו אחרון
-            </button>
           </div>
 
           <!-- Setup -->
@@ -3078,7 +3069,9 @@
 
     function renderShowVideoButton() {
       const enabled = state.outputVideoAvailable;
-      ui.showVideo.disabled = !enabled;
+      if (ui.showVideo) {
+        ui.showVideo.disabled = !enabled;
+      }
     }
 
     function openVideoPlayer() {
@@ -3154,6 +3147,11 @@
         ui.theaterStrip.hidden = !isLibrary;
       }
 
+      // Toggle drawer library-mode class
+      if (ui.rightDrawer) {
+        ui.rightDrawer.classList.toggle("library-mode", isLibrary);
+      }
+
       if (isLibrary) {
         // Pause editor audio when entering library
         if (ui.audio && !ui.audio.paused) ui.audio.pause();
@@ -3174,6 +3172,9 @@
     }
 
     function activateDrawerTab(tabName) {
+      if (ui.rightDrawer) {
+        ui.rightDrawer.classList.toggle("library-mode", tabName === "library");
+      }
       document.querySelectorAll(".drawer-tab").forEach((t) => {
         t.classList.toggle("active", t.dataset.tab === tabName);
       });
@@ -5964,7 +5965,9 @@
         });
       }
       ui.exportMp4.addEventListener("click", exportMp4);
-      ui.showVideo.addEventListener("click", openVideoPlayer);
+      if (ui.showVideo) {
+        ui.showVideo.addEventListener("click", openVideoPlayer);
+      }
       ui.closeVideoPlayer.addEventListener("click", closeVideoPlayer);
       ui.videoPlayerOverlay.addEventListener("click", (event) => {
         if (event.target === ui.videoPlayerOverlay) closeVideoPlayer();
