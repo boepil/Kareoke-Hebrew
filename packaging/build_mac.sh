@@ -109,6 +109,7 @@ rm -rf "$STAGING_DIR" "$DMG_PATH"
 mkdir -p "$STAGING_DIR"
 cp -R "$APP_PATH" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
+cp "$PROJECT_ROOT/packaging/ReadMe-macOS.txt" "$STAGING_DIR/ReadMe.txt"
 
 hdiutil create -volname "Karaoke Studio Core" \
     -srcfolder "$STAGING_DIR" \
