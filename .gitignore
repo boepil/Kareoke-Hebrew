@@ -26,3 +26,10 @@ test_results*.txt
 migrate_*.py
 *.tmp
 requirements-autosync.txt
+.pytest_temp/
+build/
+dist/
+.venv-*/
+.playwright-mcp/
+debug_projects.txt
+tests/.test_pollution_archive/

@@ -197,7 +197,13 @@ def run_first_pass_autosync(
         produced_no_vocals = project_no_vocals_path
         extracted_audio = project_audio_path if project_audio_path.exists() else extracted_audio
     else:
-        separation = separate_vocals(extracted_audio, config)
+        separation = separate_vocals(
+            extracted_audio,
+            config,
+            progress_callback=lambda detail: _emit_progress(
+                progress_callback, "stem_separation", "running", detail
+            ),
+        )
         produced_vocals = Path(str(separation.get("vocals", input_path.with_name("vocals.wav"))))
         produced_no_vocals = Path(str(separation.get("no_vocals", input_path.with_name("no_vocals.wav"))))
         _copy_if_exists(produced_vocals, project_vocals_path)

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="karaoke-edition" content="full">
   <title>סטודיו קריוקי</title>
   <style>
     :root {
@@ -1259,14 +1260,17 @@
     .pipeline-card.running { border-color: rgba(255, 193, 7, 0.4); }
     .pipeline-card.completed { border-color: rgba(76, 175, 80, 0.4); }
     .pipeline-card.error   { border-color: rgba(229, 57, 53, 0.4); }
+    .pipeline-card.cancelled { border-color: var(--border); }
     .pipeline-card.idle .pipeline-card-spin,
     .pipeline-card.completed .pipeline-card-spin,
-    .pipeline-card.error .pipeline-card-spin {
+    .pipeline-card.error .pipeline-card-spin,
+    .pipeline-card.cancelled .pipeline-card-spin {
       display: none;
     }
     .pipeline-card.completed .pipeline-card-status { color: var(--ok); }
     .pipeline-card.error .pipeline-card-status { color: var(--danger); }
     .pipeline-card.idle .pipeline-card-status { color: var(--muted-2); }
+    .pipeline-card.cancelled .pipeline-card-status { color: var(--muted-2); }
     .pipeline-card.completed .pipeline-fill { background: var(--ok); width: 100%; }
     .pipeline-card.error .pipeline-fill { background: var(--danger); width: 100%; }
     .pipeline-card.idle .pipeline-fill { background: var(--border); }
@@ -1407,7 +1411,14 @@
     #zoomOut, #zoomIn, #zoomReset { min-height: 44px; height: 44px; }
     .app-topbar { display: flex; align-items: center; gap: 14px; min-height: 62px; margin-bottom: 14px; direction: rtl; }
     .app-brand { display: flex; align-items: center; gap: 11px; min-width: 190px; }
-    .app-brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; color: #241612; background: linear-gradient(145deg, #ffb18e, var(--accent)); box-shadow: 0 8px 22px rgba(255,149,109,.24); }
+    .app-brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px; color: #241612; background: linear-gradient(145deg, #ffb18e, var(--accent)); box-shadow: 0 8px 22px rgba(255,149,109,.24); text-decoration: none; }
+    .app-brand-mark:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .video-player-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(5, 8, 13, .86); }
+    .video-player-overlay[hidden] { display: none; }
+    .video-player-dialog { width: min(1100px, 96vw); max-height: 92vh; padding: 12px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-panel); box-shadow: 0 24px 80px rgba(0,0,0,.55); }
+    .video-player-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 2px 10px; }
+    .video-player-toolbar h2 { margin: 0; }
+    .video-player { display: block; width: 100%; max-height: calc(92vh - 78px); border-radius: 10px; background: #000; }
     .app-brand-copy strong { display: block; font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
     .app-brand-copy span { display: block; color: var(--muted-2); font-size: 11px; }
     .app-title { flex: 1; min-width: 0; text-align: center; }
@@ -1533,9 +1544,9 @@
   <div class="shell">
     <header class="app-topbar">
       <div class="app-brand">
-        <div class="app-brand-mark" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 9v6l3-3 3 3V9"/></svg>
-        </div>
+        <a class="app-brand-mark" id="youtubeChannelLink" href="https://www.youtube.com/@IsraeliMusic/playlists" title="Israeli Music playlists on YouTube" aria-label="Open Israeli Music playlists on YouTube">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.6 3.6 12 3.6 12 3.6s-7.6 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.8.5 9.4.5 9.4.5s7.6 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.6V8.4l6.3 3.6-6.3 3.6Z"/></svg>
+        </a>
         <div class="app-brand-copy"><strong>Karaoke Studio</strong><span>iPad studio</span></div>
       </div>
       <div class="app-title"><small>פרויקט פעיל</small><input id="projectTitle" class="project-title-input" type="text" placeholder="זמר / שם פרויקט"></div>
@@ -1629,6 +1640,7 @@
               <div class="pipeline-bar">
                 <div class="pipeline-fill" id="pipelineProgressFill"></div>
               </div>
+              <button class="btn-danger btn-hidden" id="cancelStemSeparation" type="button">ביטול הפרדת ערוצים</button>
             </div>
             
           </div>
@@ -1802,6 +1814,15 @@
     </div>
     <div class="shortcut-hint" id="shortcutHint">לחצו על L לפתיחת עורך המילים</div>
   </div>
+  <div class="video-player-overlay" id="videoPlayerOverlay" hidden>
+    <section class="video-player-dialog" role="dialog" aria-modal="true" aria-labelledby="videoPlayerTitle">
+      <div class="video-player-toolbar">
+        <h2 id="videoPlayerTitle">הווידאו שיוצא</h2>
+        <button type="button" class="btn-outline" id="closeVideoPlayer" aria-label="סגירת נגן">סגירה ✕</button>
+      </div>
+      <video class="video-player" id="videoPlayer" controls playsinline></video>
+    </section>
+  </div>
 
   <script>
     const CONTACT_THRESHOLD_MS = 50;
@@ -1842,6 +1863,7 @@
       pipelineStatusLabel: $("pipelineStatusLabel"),
       pipelineElapsed: $("pipelineElapsed"),
       pipelineProgressFill: $("pipelineProgressFill"),
+      cancelStemSeparation: $("cancelStemSeparation"),
 
       preview: $("preview"),
       selectedWordLabel: $("selectedWordLabel"),
@@ -1860,6 +1882,10 @@
        jumpWord: $("jumpWord"),
         exportMp4: $("exportMp4"),
         showVideo: $("showVideo"),
+      videoPlayerOverlay: $("videoPlayerOverlay"),
+      videoPlayer: $("videoPlayer"),
+      closeVideoPlayer: $("closeVideoPlayer"),
+      youtubeChannelLink: $("youtubeChannelLink"),
         exportStatus: null,
         exportStage: null,
         exportPercent: null,
@@ -1906,6 +1932,7 @@
     };
 
     const state = {
+      coreEdition: document.querySelector('meta[name="karaoke-edition"]')?.content === "core",
       railOpen: true,
       session: null,
       projects: [],
@@ -2251,6 +2278,7 @@
         "Downloading audio from YouTube...": "מוריד שמע מיוטיוב...",
         "YouTube import complete.": "ייבוא YouTube הושלם.",
         "Stems ready.": "ערוצי השמע מוכנים.",
+        "Stems ready. No lyrics were found; add lyrics manually.": "ערוצי השמע מוכנים. לא נמצאו מילים; יש להוסיף אותן ידנית.",
         "No lyrics found. Stems processing...": "לא נמצאו מילים. עיבוד ערוצי שמע...",
         "Pipeline failed.": "הצינור נכשל.",
         "Pipeline complete": "העיבוד הושלם",
@@ -2267,6 +2295,7 @@
         "Downloading audio from YouTube...": "מוריד שמע מיוטיוב...",
         "Stem separation": "הפרדת ערוצים",
         "Fetching lyrics and creating project": "מביא מילים ויוצר פרויקט",
+        "No lyrics match found; project created without lyrics": "לא נמצאו מילים מתאימות; הפרויקט נוצר ללא מילים",
         "Editor project ready": "פרויקט העריכה מוכן",
       };
       if (exact[text]) return exact[text];
@@ -2757,6 +2786,21 @@
       ui.showVideo.disabled = !enabled;
     }
 
+    function openVideoPlayer() {
+      const projectName = encodeURIComponent(state.session?.project_name || "");
+      ui.videoPlayer.src = `/api/export/video?project_name=${projectName}&t=${Date.now()}`;
+      ui.videoPlayerOverlay.hidden = false;
+      ui.videoPlayer.load();
+      ui.videoPlayer.play().catch(() => {});
+    }
+
+    function closeVideoPlayer() {
+      ui.videoPlayer.pause();
+      ui.videoPlayer.removeAttribute("src");
+      ui.videoPlayer.load();
+      ui.videoPlayerOverlay.hidden = true;
+    }
+
     function renderSetupInput(source) {
       if (!ui.setupInputArea) return;
       if (source === "youtube") {
@@ -2886,7 +2930,7 @@
 
       state.pipelineRunning = status === "running";
 
-      ui.pipelineCard.classList.remove("idle", "running", "completed", "error");
+      ui.pipelineCard.classList.remove("idle", "running", "completed", "error", "cancelled");
 
       if (status === "running") {
         const stageName = payload?.stage_label || currentStage?.label || payload?.current_stage_label || "Pipeline";
@@ -2915,6 +2959,15 @@
         ui.pipelineProgressFill.style.width = `${progress}%`;
         ui.pipelineCard.hidden = false;
         ui.pipelineCard.classList.add("error");
+      } else if (status === "cancelled") {
+        ui.pipelineStage.textContent = "הפרדת הערוצים בוטלה";
+        ui.pipelineStatusLabel.textContent = "בוטל";
+        ui.pipelineElapsed.textContent = "";
+        ui.pipelineProgressFill.style.width = `${progress}%`;
+        ui.pipelineCard.hidden = false;
+        ui.pipelineCard.classList.add("cancelled");
+        ui.cancelStemSeparation.disabled = false;
+        ui.cancelStemSeparation.textContent = "ביטול הפרדת ערוצים";
       } else {
         ui.pipelineStage.textContent = "העיבוד במצב המתנה";
         ui.pipelineStatusLabel.textContent = "מוכן";
@@ -2925,10 +2978,18 @@
       }
 
       if (ui.aiFirstPass) {
-        ui.aiFirstPass.classList.toggle("btn-hidden", status === "running");
+        ui.aiFirstPass.classList.toggle("btn-hidden", state.coreEdition || status === "running");
       }
       if (ui.stopAiPass) {
-        ui.stopAiPass.classList.toggle("btn-hidden", status !== "running");
+        ui.stopAiPass.classList.toggle("btn-hidden", state.coreEdition || status !== "running");
+      }
+      if (ui.cancelStemSeparation) {
+        const canCancelStem = status === "running"
+          && String(payload?.current_stage_key || "") === "stem_separation";
+        ui.cancelStemSeparation.classList.toggle("btn-hidden", !canCancelStem);
+        if (canCancelStem && !ui.cancelStemSeparation.disabled) {
+          ui.cancelStemSeparation.textContent = "ביטול הפרדת ערוצים";
+        }
       }
     }
 
@@ -2983,6 +3044,15 @@
       setTimeout(retryStems, 500);
     }
 
+    function showImportCompleteStatus() {
+      const hasLyrics = Boolean(String(state.session?.lyrics_text || "").trim());
+      updateStatusChip(
+        ui.projectStatus,
+        hasLyrics ? "Stems ready." : "Stems ready. No lyrics were found; add lyrics manually.",
+        hasLyrics ? "ok" : "warn",
+      );
+    }
+
     function startPipelinePolling() {
       stopPipelinePolling();
       state.pipelinePoller = setInterval(async () => {
@@ -2994,16 +3064,23 @@
           stopPipelinePolling();
           if (payload.status === "completed" && state.pipelineAwaitingProjectLoad) {
             await stopPipelineAndLoadProject();
-            updateStatusChip(
-              ui.projectStatus,
-              `Pipeline complete: ${payload.project_name || state.session?.project_name || "Project ready"}`,
-              "ok",
-            );
+            if (state.pipelineMode === "import") {
+              showImportCompleteStatus();
+            } else {
+              updateStatusChip(
+                ui.projectStatus,
+                `Pipeline complete: ${payload.project_name || state.session?.project_name || "Project ready"}`,
+                "ok",
+              );
+            }
             return;
           }
           state.pipelineAwaitingProjectLoad = false;
           if (payload.status === "error") {
             updateStatusChip(ui.projectStatus, payload.error || "Pipeline failed.", "warn");
+          }
+          if (payload.status === "cancelled") {
+            updateStatusChip(ui.projectStatus, "Stem separation cancelled.", "warn");
           }
         } catch (_) {
           stopPipelinePolling();
@@ -3079,6 +3156,26 @@
         if (ui.stopAiPass) {
           ui.stopAiPass.disabled = false;
         }
+      }
+    }
+
+    async function cancelStemSeparation() {
+      if (!ui.cancelStemSeparation) return;
+      ui.cancelStemSeparation.disabled = true;
+      ui.cancelStemSeparation.textContent = "מבטל...";
+      try {
+        const result = await fetchJson("/api/pipeline/stop", { method: "POST" });
+        if (result.status === "idle") {
+          stopPipelinePolling();
+          renderPipelineStatus({ status: "idle", stages: [] });
+          ui.cancelStemSeparation.disabled = false;
+          ui.cancelStemSeparation.textContent = "ביטול הפרדת ערוצים";
+        }
+        updateStatusChip(ui.projectStatus, "Cancelling stem separation…", "warn");
+      } catch (error) {
+        ui.cancelStemSeparation.disabled = false;
+        ui.cancelStemSeparation.textContent = "ביטול הפרדת ערוצים";
+        updateStatusChip(ui.projectStatus, error.message, "warn");
       }
     }
 
@@ -3944,14 +4041,14 @@
       // renderSaveButtons(), which would otherwise re-enable the save buttons
       // even when there are no unsaved changes.
       if (ui.deleteProject) {
-        ui.deleteProject.disabled = !hasProject;
+        ui.deleteProject.disabled = !hasProject || Boolean(state.pipelineRunning);
       }
       if (ui.aiFirstPass) {
         ui.aiFirstPass.disabled = !hasProject;
-        ui.aiFirstPass.classList.toggle("btn-hidden", Boolean(state.pipelineRunning));
+        ui.aiFirstPass.classList.toggle("btn-hidden", state.coreEdition || Boolean(state.pipelineRunning));
       }
       if (ui.stopAiPass) {
-        ui.stopAiPass.classList.toggle("btn-hidden", !Boolean(state.pipelineRunning));
+        ui.stopAiPass.classList.toggle("btn-hidden", state.coreEdition || !Boolean(state.pipelineRunning));
       }
       if (ui.jumpWord) {
         const selected = getSelectedWord();
@@ -4620,7 +4717,7 @@
               startPipelinePolling();
             } else if (pipelineStatus.status === "completed") {
               await stopPipelineAndLoadProject();
-              updateStatusChip(ui.projectStatus, "Stems ready.", "ok");
+              showImportCompleteStatus();
             }
           } catch (_) {
             startPipelinePolling();
@@ -4681,7 +4778,7 @@
         // load it immediately and show status
         if (responsePayload.status === "completed") {
           await loadProject({ bustCache: true });
-          updateStatusChip(ui.projectStatus, "YouTube import complete.", "ok");
+          showImportCompleteStatus();
           ui.importProject.disabled = false;
           return;
         }
@@ -4700,7 +4797,7 @@
             const pipelineStatus = await syncPipelineStatus();
             if (pipelineStatus.status === "completed") {
               await stopPipelineAndLoadProject();
-              updateStatusChip(ui.projectStatus, "Stems ready.", "ok");
+              showImportCompleteStatus();
             } else if (pipelineStatus.status === "error") {
               stopPipelinePolling();
               state.pipelineAwaitingProjectLoad = false;
@@ -5338,6 +5435,11 @@
           updateStatusChip(ui.projectStatus, error.message, "warn");
         }));
       }
+      if (ui.cancelStemSeparation) {
+        ui.cancelStemSeparation.addEventListener("click", () => cancelStemSeparation().catch((error) => {
+          updateStatusChip(ui.projectStatus, error.message, "warn");
+        }));
+      }
       ui.lyricsText.addEventListener("input", scheduleLyricsTextRebuild);
 
       ui.zoomOut.addEventListener("click", () => {
@@ -5399,10 +5501,22 @@
         });
       }
       ui.exportMp4.addEventListener("click", exportMp4);
-      ui.showVideo.addEventListener("click", () => {
-  const projectName = encodeURIComponent(state.session?.project_name || "");
-  window.open(`/api/export/video?project_name=${projectName}`, "_blank");
-});
+      ui.showVideo.addEventListener("click", openVideoPlayer);
+      ui.closeVideoPlayer.addEventListener("click", closeVideoPlayer);
+      ui.videoPlayerOverlay.addEventListener("click", (event) => {
+        if (event.target === ui.videoPlayerOverlay) closeVideoPlayer();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !ui.videoPlayerOverlay.hidden) closeVideoPlayer();
+      });
+      ui.youtubeChannelLink.addEventListener("click", async (event) => {
+        event.preventDefault();
+        try {
+          await fetchJson("/api/open-youtube-playlists", { method: "POST" });
+        } catch (error) {
+          updateStatusChip(ui.projectStatus, error.message, "warn");
+        }
+      });
       ui.saveProject.addEventListener("click", saveProject);
       if (ui.saveLyrics) {
         ui.saveLyrics.addEventListener("click", saveProject);

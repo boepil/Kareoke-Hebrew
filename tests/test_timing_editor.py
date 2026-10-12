@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import wave
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from timing_editor import (
     _build_manual_subtitles,
@@ -12,13 +13,56 @@ from timing_editor import (
     _ddg_search_lyrics_url,
     _default_pipeline_job,
     _default_output_video_path,
+    _current_project_marker,
+    _download_youtube_audio,
     _editor_paths,
     _discover_project_details_from_youtube,
+    _fetch_youtube_metadata,
     _fetch_shirrim_lyrics,
     _project_paths,
     _resolve_manual_word_windows,
+    _youtube_runtime_options,
     create_app,
 )
+
+
+def test_youtube_metadata_and_audio_download_use_bundled_runtime_and_api(tmp_path: Path) -> None:
+    deno_path = tmp_path / "deno.exe"
+    deno_path.write_bytes(b"deno")
+    audio_path = tmp_path / "input" / "Song [abc123].mp3"
+    audio_path.parent.mkdir()
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def extract_info(self, _url, download=False):
+            if download:
+                audio_path.write_bytes(b"fake mp3")
+                return {"filepath": str(audio_path)}
+            return {"title": "Song", "uploader": "Singer", "id": "abc123"}
+
+    with patch.dict(os.environ, {"KARAOKE_DENO_PATH": str(deno_path), "KARAOKE_APP_ROOT": ""}), patch(
+        "timing_editor.shutil.which", return_value=None
+    ), patch("timing_editor.YoutubeDL", side_effect=FakeYoutubeDL) as youtube_dl:
+        metadata = _fetch_youtube_metadata("https://youtube.com/watch?v=abc123")
+        downloaded = _download_youtube_audio(type("Paths", (), {"input_dir": audio_path.parent})(), "https://youtube.com/watch?v=abc123")
+
+    assert metadata["title"] == "Song"
+    assert metadata["uploader"] == "Singer"
+    assert downloaded == audio_path.resolve()
+    assert youtube_dl.call_count == 2
+    for call in youtube_dl.call_args_list:
+        options = call.args[0]
+        assert options["js_runtimes"]["deno"]["path"] == str(deno_path.resolve())
+    assert youtube_dl.call_args_list[0].args[0]["skip_download"] is True
+    assert youtube_dl.call_args_list[1].args[0]["postprocessors"][0]["preferredcodec"] == "mp3"
 
 
 def _write_config(path: Path, temp_dir: Path, output_dir: Path, logs_dir: Path) -> None:
@@ -778,14 +822,59 @@ def test_timing_editor_open_output_endpoint(tmp_path: Path) -> None:
     app.testing = True
     client = app.test_client()
 
-    with patch.object(os, "startfile", autospec=True) as mock_startfile:
-        response = client.post("/api/output/open")
+    if hasattr(os, "startfile"):
+        with patch.object(os, "startfile", autospec=True) as mock_startfile:
+            response = client.post("/api/output/open")
+            assert response.status_code == 200, response.get_json()
+            payload = response.get_json()
+            assert payload["ok"] is True
+            assert payload["output_video"] == str(output_video)
+            mock_startfile.assert_called_once_with(str(output_video))
+    else:
+        with patch("subprocess.run") as mock_run:
+            response = client.post("/api/output/open")
+            assert response.status_code == 200, response.get_json()
+            payload = response.get_json()
+            assert payload["ok"] is True
+            assert payload["output_video"] == str(output_video)
+            mock_run.assert_called_once()
 
-    assert response.status_code == 200, response.get_json()
-    payload = response.get_json()
-    assert payload["ok"] is True
-    assert payload["output_video"] == str(output_video)
-    mock_startfile.assert_called_once_with(str(output_video))
+
+def test_timing_editor_opens_israeli_music_playlists_externally(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+    logs_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+    client = create_app(config_path).test_client()
+
+    with patch("timing_editor.webbrowser.open", return_value=True) as open_browser:
+        response = client.post("/api/open-youtube-playlists")
+
+    assert response.status_code == 200
+    assert response.get_json()["url"] == "https://www.youtube.com/@IsraeliMusic/playlists"
+    open_browser.assert_called_once_with("https://www.youtube.com/@IsraeliMusic/playlists")
+
+
+def test_timing_editor_uses_an_in_app_video_player_and_channel_shortcut(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+    logs_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+    page = (Path(__file__).resolve().parents[1] / "ui" / "timing_editor.html").read_text(encoding="utf-8")
+    assert 'id="videoPlayer" controls' in page
+    assert 'id="youtubeChannelLink" href="https://www.youtube.com/@IsraeliMusic/playlists"' in page
+    assert 'ui.showVideo.addEventListener("click", openVideoPlayer)' in page
+    assert 'window.open(`/api/export/video' not in page
 
 
 def test_timing_editor_projects_list_and_select_named_project(tmp_path: Path) -> None:
@@ -955,6 +1044,46 @@ def test_timing_editor_delete_project_removes_project(tmp_path: Path) -> None:
     assert all(project["id"] != "Delete Me" for project in projects_payload["projects"])
 
 
+def test_timing_editor_delete_legacy_project_preserves_shared_files(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    input_dir = tmp_path / "input"
+    for directory in (temp_dir, output_dir, logs_dir, input_dir):
+        directory.mkdir()
+    _ensure_test_subdirs(temp_dir)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+
+    (temp_dir / "audio" / "audio.wav").write_bytes(b"legacy audio")
+    (temp_dir / "audio" / "audio.wav").chmod(0o444)
+    (temp_dir / "subtitles" / "lyrics.txt").write_text("legacy lyrics", encoding="utf-8")
+    (temp_dir / "state" / "state.json").write_text("{}", encoding="utf-8")
+    (temp_dir / "state" / "timing_overrides.json").write_text("{}", encoding="utf-8")
+    pipeline_status = temp_dir / "state" / "pipeline_state.json"
+    pipeline_status.write_text("{}", encoding="utf-8")
+    shared_source = input_dir / "shared.mp3"
+    shared_source.write_bytes(b"keep")
+
+    app = create_app(config_path)
+    app.testing = True
+    client = app.test_client()
+    create_response = client.post("/api/projects/create", json={"project_name": "Keep Me"})
+    assert create_response.status_code == 200
+
+    response = client.post("/api/projects/delete", json={"project_id": "__legacy__"})
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()["deleted_project_id"] == "__legacy__"
+    assert response.get_json()["current_project_id"] == "Keep Me"
+    assert not (temp_dir / "audio" / "audio.wav").exists()
+    assert not (temp_dir / "subtitles" / "lyrics.txt").exists()
+    assert not (temp_dir / "state" / "state.json").exists()
+    assert not (temp_dir / "state" / "timing_overrides.json").exists()
+    assert pipeline_status.read_text(encoding="utf-8") == "{}"
+    assert shared_source.read_bytes() == b"keep"
+    assert _current_project_marker(_editor_paths(config_path)).read_text(encoding="utf-8") == "Keep Me"
+
+
 def test_timing_editor_session_repairs_stale_manifest_when_unplaced(tmp_path: Path) -> None:
     temp_dir = tmp_path / "temp"
     output_dir = tmp_path / "output"
@@ -1100,7 +1229,10 @@ def test_timing_editor_import_youtube_creates_manual_project(tmp_path: Path) -> 
     with patch("timing_editor._download_youtube_audio", side_effect=fake_download), patch(
         "timing_editor._discover_project_details_from_youtube",
         return_value={},
-    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track",
+        return_value=input_dir / "no_vocals.wav",
+    ):
         response = client.post(
             "/api/import/youtube",
             json={
@@ -1120,6 +1252,51 @@ def test_timing_editor_import_youtube_creates_manual_project(tmp_path: Path) -> 
     assert state["status"] == "ready"
     assert state["project_name"] == "Downloaded Song"
     assert state["lyrics_text"] == "hello\nworld"
+
+
+def test_timing_editor_youtube_import_completes_without_automatic_lyrics(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    input_dir = tmp_path / "input"
+    for directory in (temp_dir, output_dir, logs_dir, input_dir):
+        directory.mkdir()
+    _ensure_test_subdirs(temp_dir)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+    app = create_app(config_path)
+    app.testing = True
+    client = app.test_client()
+    downloaded_audio = input_dir / "Song [no-lyrics].mp3"
+    downloaded_audio.write_bytes(b"fake mp3")
+
+    def fake_extract(_input_file, output_file, _config):
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        _write_wav(Path(output_file))
+        return Path(output_file)
+
+    with patch("timing_editor._download_youtube_audio", return_value=downloaded_audio), patch(
+        "timing_editor._discover_project_details_from_youtube", return_value={}
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track", return_value=input_dir / "no_vocals.wav"
+    ) as separate_stems:
+        response = client.post(
+            "/api/import/youtube",
+            json={"youtube_url": "https://youtube.com/watch?v=no-lyrics"},
+        )
+
+    assert response.status_code == 200, response.get_json()
+    payload = response.get_json()
+    assert payload["lyrics_found"] is False
+    separate_stems.assert_called_once_with(
+        _project_paths(_editor_paths(config_path), payload["project_id"]),
+        require_stems=True,
+        progress_callback=ANY,
+        cancel_check=ANY,
+    )
+    state = json.loads(_project_paths(_editor_paths(config_path), payload["project_id"]).state_path.read_text(encoding="utf-8"))
+    assert state["lyrics_text"] == ""
+    assert next(stage for stage in payload["stages"] if stage["key"] == "stem_separation")["status"] == "done"
 
 
 def test_timing_editor_import_youtube_attaches_to_existing_project(tmp_path: Path) -> None:
@@ -1162,7 +1339,10 @@ def test_timing_editor_import_youtube_attaches_to_existing_project(tmp_path: Pat
     with patch("timing_editor._download_youtube_audio", side_effect=fake_download), patch(
         "timing_editor._discover_project_details_from_youtube",
         return_value={},
-    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track",
+        return_value=input_dir / "no_vocals.wav",
+    ):
         response = client.post(
             "/api/import/youtube",
             json={
@@ -1222,7 +1402,10 @@ def test_timing_editor_import_youtube_auto_finds_lyrics_and_renames_project(tmp_
             "lyrics_source_url": "https://shirrim.com/song-lyrics/example/",
             "lyrics_title": "\u05de\u05d9\u05dc\u05d9\u05dd \u05dc\u05e9\u05d9\u05e8 \u05d0\u05d9\u05d9\u05dc \u05d2\u05d5\u05dc\u05df - \u05de\u05d9\u05dc\u05d9\u05d5\u05df \u05e9\u05d9\u05e8\u05d9\u05dd",
         },
-    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track",
+        return_value=input_dir / "no_vocals.wav",
+    ):
         response = client.post(
             "/api/import/youtube",
             json={"youtube_url": "https://youtube.com/watch?v=auto1"},
@@ -1283,7 +1466,10 @@ def test_timing_editor_import_youtube_attached_project_is_renamed_from_match(tmp
             "project_name": "\u05e9\u05dd \u05d4\u05e9\u05d9\u05e8 - \u05e9\u05dd \u05d4\u05d6\u05de\u05e8",
             "youtube_project_name": "\u05e9\u05dd \u05d4\u05e9\u05d9\u05e8 - \u05e9\u05dd \u05d4\u05d6\u05de\u05e8",
         },
-    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track",
+        return_value=input_dir / "no_vocals.wav",
+    ):
         response = client.post(
             "/api/import/youtube",
             json={
@@ -1338,7 +1524,9 @@ def test_timing_editor_import_audio_auto_uses_filename_and_fetches_lyrics(tmp_pa
             "source_query": "\u05e1\u05d8\u05dc\u05d5\u05ea",
             "source_artist": "\u05d0\u05d9\u05d9\u05dc \u05d2\u05d5\u05dc\u05df",
         },
-    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track", return_value=temp_dir / "no_vocals.wav"
+    ):
         with audio_file.open("rb") as fh:
             response = client.post(
                 "/api/import/audio-auto",
@@ -1389,7 +1577,9 @@ def test_timing_editor_ai_first_pass_endpoint_runs_on_current_project(tmp_path: 
     with patch(
         "timing_editor._discover_project_details_from_audio_filename",
         return_value={"project_name": "song", "lyrics_text": "line one", "lyrics_source_url": ""},
-    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track", return_value=temp_dir / "no_vocals.wav"
+    ):
         with audio_file.open("rb") as fh:
             create_response = client.post(
                 "/api/import/audio-auto",
@@ -1483,12 +1673,78 @@ def test_timing_editor_resets_stale_pipeline_job_and_allows_import(tmp_path: Pat
     with patch("timing_editor._download_youtube_audio", side_effect=fake_download), patch(
         "timing_editor._discover_project_details_from_youtube",
         return_value={"youtube_project_name": "song", "lyrics_text": "line one", "lyrics_source_url": ""},
-    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract):
+    ), patch("timing_editor.extract_and_normalize_audio", side_effect=fake_extract), patch(
+        "timing_editor._ensure_project_backing_track", return_value=input_dir / "no_vocals.wav"
+    ):
         response = client.post("/api/import/youtube", json={"youtube_url": "https://youtube.com/watch?v=abc"})
 
     assert response.status_code == 200, response.get_json()
     payload = response.get_json()
     assert payload["ok"] is True
+
+
+def test_timing_editor_resets_orphaned_stem_separation_on_startup(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+    logs_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+
+    orphaned_job = _default_pipeline_job()
+    orphaned_job.update({
+        "job_id": "interrupted-separation",
+        "status": "running",
+        "current_stage_key": "stem_separation",
+        "current_stage_label": "Stem separation",
+    })
+    orphaned_job["stages"][2].update({"status": "running", "detail": "Running stem separation"})
+    (temp_dir / "state" / "pipeline_state.json").write_text(
+        json.dumps(orphaned_job), encoding="utf-8"
+    )
+
+    client = create_app(config_path).test_client()
+    payload = client.get("/api/pipeline/status").get_json()
+    assert payload["status"] == "idle"
+    persisted = json.loads((temp_dir / "state" / "pipeline_state.json").read_text(encoding="utf-8"))
+    assert persisted["status"] == "idle"
+
+
+def test_timing_editor_stop_requests_cancellation_of_stem_thread(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    logs_dir = tmp_path / "logs"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+    logs_dir.mkdir()
+    _ensure_test_subdirs(temp_dir)
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, temp_dir, output_dir, logs_dir)
+    app = create_app(config_path)
+    client = app.test_client()
+
+    class ActiveThread(threading.Thread):
+        def is_alive(self) -> bool:
+            return True
+
+    cancel_event = threading.Event()
+    active_thread = ActiveThread()
+    app.config["PIPELINE_CANCEL_EVENT"] = cancel_event
+    app.config["PIPELINE_WORKER"] = {
+        "kind": "youtube_import", "job_id": "active", "thread": active_thread
+    }
+    running_job = _default_pipeline_job()
+    running_job.update({"job_id": "active", "status": "running", "current_stage_key": "stem_separation"})
+    app.config["PIPELINE_JOB"] = running_job
+
+    response = client.post("/api/pipeline/stop")
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "cancelling"
+    assert cancel_event.is_set()
+    assert app.config["PIPELINE_JOB"]["status"] == "running"
 
 
 def test_timing_editor_youtube_import_publishes_download_failure(tmp_path: Path) -> None:

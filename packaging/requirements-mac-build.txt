@@ -1,0 +1,5 @@
+-r ../requirements.txt
+pyinstaller>=6.0
+pywebview>=5.0
+pyobjc-framework-WebKit>=10.0
+pyobjc-framework-Cocoa>=10.0

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#000000"/>
+      <stop offset="100%" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <radialGradient id="warmGlow">
+      <stop offset="0" stop-color="#D2691E" stop-opacity="0.38"/>
+      <stop offset="0.48" stop-color="#D2691E" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#D2691E" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soften" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#background)"/>
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="0 0; 1200 0; 0 0" keyTimes="0; 0.5; 1" dur="6s" repeatCount="indefinite" calcMode="spline" keySplines="0.42 0 0.58 1; 0.42 0 0.58 1"/>
+    <ellipse cx="400" cy="450" rx="250" ry="250" fill="url(#warmGlow)" filter="url(#soften)"/>
+    <circle cx="400" cy="450" r="174" fill="#D2691E"/>
+  </g>
+</svg>

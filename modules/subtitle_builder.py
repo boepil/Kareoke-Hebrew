@@ -151,21 +151,42 @@ def _find_font_path(font_name: str, font_path: str) -> str | None:
     if direct_candidate.exists():
         return str(direct_candidate)
 
-    windows_fonts = Path("C:/Windows/Fonts")
-    candidate_files = {
+    font_dirs = [
+        Path("C:/Windows/Fonts"),
+        Path("/System/Library/Fonts"),
+        Path("/System/Library/Fonts/Supplemental"),
+        Path("/Library/Fonts"),
+        Path.home() / "Library" / "Fonts",
+        Path("/usr/share/fonts"),
+        Path("/usr/local/share/fonts"),
+        Path.home() / ".fonts",
+    ]
+    candidate_files = [
         font_name,
         f"{font_name}.ttf",
         f"{font_name}.ttc",
+        f"{font_name}.otf",
         "micross.ttf",
         "arialuni.ttf",
         "arial.ttf",
+        "Arial.ttf",
+        "Arial Hebrew.ttc",
+        "ArialHB.ttc",
+        "Arial Unicode.ttf",
         "David.ttf",
         "DavidLibre-Regular.ttf",
-    }
-    for candidate_name in candidate_files:
-        candidate = windows_fonts / candidate_name
-        if candidate.exists():
-            return str(candidate)
+        "NotoSansHebrew-Regular.ttf",
+        "LucidaGrande.ttc",
+        "Helvetica.ttc",
+        "HelveticaNeue.ttc",
+    ]
+    for font_dir in font_dirs:
+        if not font_dir.exists():
+            continue
+        for candidate_name in candidate_files:
+            candidate = font_dir / candidate_name
+            if candidate.exists():
+                return str(candidate)
     return None
 
 
@@ -173,10 +194,18 @@ def _find_font_path(font_name: str, font_path: str) -> str | None:
 def _load_measurement_font(font_name: str, font_path: str, font_size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     resolved_path = _find_font_path(font_name, font_path)
     if resolved_path:
-        return ImageFont.truetype(resolved_path, font_size)
+        try:
+            return ImageFont.truetype(resolved_path, font_size)
+        except OSError:
+            pass
     try:
         return ImageFont.truetype(font_name, font_size)
     except OSError:
+        for fallback in ("Arial Hebrew", "Arial", "Helvetica", "DejaVu Sans"):
+            try:
+                return ImageFont.truetype(fallback, font_size)
+            except OSError:
+                continue
         return ImageFont.load_default()
 
 
@@ -866,6 +895,8 @@ def build_ass_dialogue_lines(
         else:
             display_texts.append(str(segment.get("text", "")))
 
+    previous_end = -1.0
+    previous_promote = -1.0
     for index, segment in enumerate(segments):
         segment_start = float(segment["start"])
         segment_end = float(segment["end"])
@@ -875,7 +906,6 @@ def build_ass_dialogue_lines(
             display_text = " ".join(word for _, _, word in word_windows)
         else:
             display_text = str(segment.get("text", ""))
-        next_display_text = display_texts[index + 1] if index + 1 < len(display_texts) else ""
 
         line_id = f"segment_{len(line_entries):03d}"
         segment_start, segment_end, word_windows = _apply_timing_override(
@@ -885,6 +915,15 @@ def build_ass_dialogue_lines(
             word_windows,
             overrides,
         )
+
+        t_promote = previous_end + 0.2 if previous_end >= 0 else max(0.0, segment_start - 2.0)
+        t_promote = min(t_promote, segment_start)
+        t_reveal = previous_promote if previous_promote >= 0 else max(0.0, t_promote - 2.0)
+        t_reveal = min(t_reveal, t_promote - 0.1)
+
+        previous_end = segment_end
+        previous_promote = t_promote
+
         dialogue_lines.append(_ass_placeholder_line(segment_start, segment_end, display_text))
         image_events.extend(
             _build_image_events(
@@ -893,7 +932,8 @@ def build_ass_dialogue_lines(
                 segment_start,
                 segment_end,
                 word_windows,
-                next_display_text,
+                t_reveal,
+                t_promote,
                 assets_dir,
                 settings,
             )

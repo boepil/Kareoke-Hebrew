@@ -13,6 +13,7 @@ import os
 import re
 import signal
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -25,18 +26,19 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, Response, jsonify, request, send_file
+from yt_dlp import YoutubeDL
 
 from main import load_config
 from modules.audio_extractor import extract_and_normalize_audio
 from modules.first_pass import run_first_pass_autosync
 from modules.lyrics_corrector import extract_lyrics_from_page
 from modules.renderer import render_video
-from modules.separator import separate_vocals
+from modules.separator import SeparationCancelledError, separate_vocals
 from modules.subtitle_builder import (
     _ass_placeholder_line,
     _build_image_events,
@@ -47,18 +49,75 @@ from modules.subtitle_builder import (
 )
 
 LOGGER = logging.getLogger(__name__)
+ISRAELI_MUSIC_PLAYLISTS_URL = "https://www.youtube.com/@IsraeliMusic/playlists"
 
-YOUTUBE_METADATA_TIMEOUT_SECONDS = 60
-YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS = 600
+def _format_youtube_error(exc: Exception) -> str:
+    msg = str(exc).strip()
+    lowered = msg.lower()
+    if "sign in to confirm" in lowered or "not a bot" in lowered:
+        return "YouTube blocked the import with bot detection (Sign in required). Please download or provide the audio file (.mp3/.wav) directly."
+    if "http error 429" in lowered or "too many requests" in lowered:
+        return "YouTube is rate-limiting downloads (HTTP 429 Too Many Requests). Please wait a few minutes or provide the audio file directly."
+    if "private video" in lowered:
+        return "This YouTube video is marked Private and cannot be accessed."
+    if "members-only" in lowered or "join this channel" in lowered:
+        return "This video is restricted to channel members and cannot be downloaded."
+    if "geoblocked" in lowered or "not available" in lowered or "not made this video available" in lowered:
+        return "This YouTube video is geo-restricted and not available in your region."
+    if "js_runtimes" in lowered or "javascript" in lowered or "deno" in lowered:
+        return f"YouTube required a JavaScript runtime to solve extraction challenges: {msg}. Ensure Deno or Node is installed."
+    return msg or "yt-dlp failed to process the YouTube link"
 
 
-def _youtube_runtime_args() -> list[str]:
-    """Enable yt-dlp's YouTube challenge solver with an installed JS runtime."""
+def _youtube_runtime_options() -> dict[str, Any]:
+    """Configure yt-dlp to use the runtime shipped with the desktop app."""
+    deno_name = "deno.exe" if sys.platform == "win32" else "deno"
+    node_name = "node.exe" if sys.platform == "win32" else "node"
+    app_root = os.environ.get("KARAOKE_APP_ROOT", "").strip()
+
+    deno_candidates = [
+        os.environ.get("KARAOKE_DENO_PATH", "").strip(),
+        str(Path(app_root) / deno_name) if app_root else "",
+        str(Path(app_root) / "Resources" / deno_name) if app_root else "",
+        str(Path(sys.executable).resolve().parent / deno_name),
+        str(Path(sys.executable).resolve().parent.parent / "Resources" / deno_name),
+        "/opt/homebrew/bin/deno",
+        "/usr/local/bin/deno",
+    ]
+    for candidate in deno_candidates:
+        if candidate and Path(candidate).is_file():
+            return {"js_runtimes": {"deno": {"path": str(Path(candidate).resolve())}}}
+
     for runtime in ("deno", "node"):
         executable = shutil.which(runtime)
         if executable:
-            return ["--js-runtimes", f"{runtime}:{executable}", "--remote-components", "ejs:github"]
-    return []
+            return {"js_runtimes": {runtime: {"path": executable}}}
+
+    for node_candidate in (
+        str(Path(app_root) / node_name) if app_root else "",
+        str(Path(sys.executable).resolve().parent / node_name),
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+    ):
+        if node_candidate and Path(node_candidate).is_file():
+            return {"js_runtimes": {"node": {"path": node_candidate}}}
+
+    return {}
+
+
+def _youtube_downloader_options(**overrides: Any) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "noplaylist": True,
+        "socket_timeout": 30,
+        "retries": 3,
+        "extractor_retries": 3,
+        **_youtube_runtime_options(),
+    }
+    options.update(overrides)
+    return options
 
 
 @dataclass(frozen=True)
@@ -116,8 +175,14 @@ def _editor_paths(config_path: str | Path) -> EditorPaths:
         raise KeyError("Missing 'subtitle_builder' section in config")
 
     config_dir = resolved_config.parent
-    input_dir = _resolve_from_config(config_dir, str(paths.get("input_dir", "data/input")))
-    temp_dir = _resolve_from_config(config_dir, str(paths.get("temp_dir", "temp")))
+    runtime_data_root = os.environ.get("KARAOKE_USER_DATA_DIR", "").strip()
+    if runtime_data_root:
+        writable_root = Path(runtime_data_root).expanduser().resolve()
+        input_dir = writable_root / "input"
+        temp_dir = writable_root / "temp"
+    else:
+        input_dir = _resolve_from_config(config_dir, str(paths.get("input_dir", "data/input")))
+        temp_dir = _resolve_from_config(config_dir, str(paths.get("temp_dir", "temp")))
     manifest_name = str(subtitle_builder.get("manifest_name", "subtitles_manifest.json"))
     overrides_name = str(subtitle_builder.get("timing_overrides_name", "timing_overrides.json"))
     ui_path = (config_dir / "ui" / "timing_editor.html").resolve()
@@ -141,6 +206,10 @@ def _projects_root(base_paths: EditorPaths) -> Path:
 
 
 def _current_project_marker(base_paths: EditorPaths) -> Path:
+    return base_paths.temp_dir / "state" / "current_project.txt"
+
+
+def _legacy_current_project_marker(base_paths: EditorPaths) -> Path:
     return base_paths.root_dir / "data" / ".current_project"
 
 
@@ -188,7 +257,10 @@ def _legacy_project_exists(base_paths: EditorPaths) -> bool:
 def _active_project_key(base_paths: EditorPaths) -> str:
     marker = _current_project_marker(base_paths)
     if marker.exists():
-        raw = marker.read_text(encoding="utf-8").strip()
+        return marker.read_text(encoding="utf-8").strip()
+    legacy_marker = _legacy_current_project_marker(base_paths)
+    if legacy_marker.exists():
+        raw = legacy_marker.read_text(encoding="utf-8").strip()
         if raw:
             return raw
     if _legacy_project_exists(base_paths):
@@ -339,7 +411,7 @@ def _update_pipeline_stage(
                 stage_payload["started_at"] = started_at or stage_payload.get("started_at") or _timestamp()
                 stage_payload["ended_at"] = None
                 stage_payload["elapsed_seconds"] = 0.0
-            elif status in {"done", "skipped"}:
+            elif status in {"done", "skipped", "cancelled"}:
                 stage_payload["ended_at"] = _timestamp()
                 started_value = str(stage_payload.get("started_at", "")).strip()
                 if started_value:
@@ -827,19 +899,54 @@ def _rename_project(base_paths: EditorPaths, project_id: str, project_name: str)
 def _delete_project(base_paths: EditorPaths, project_id: str) -> str:
     if not project_id:
         raise ValueError("project_id is required")
+
     if project_id == LEGACY_PROJECT_KEY:
-        raise ValueError("Legacy project deletion is not supported")
-
-    project_paths = _project_paths(base_paths, project_id)
-    if not project_paths.temp_dir.exists():
-        raise FileNotFoundError(f"Project directory not found: {project_paths.temp_dir}")
-
-    shutil.rmtree(project_paths.temp_dir)
+        # The legacy project shares the global temp root. Clear only its own
+        # audio, subtitle, state and timing files; preserve saved projects,
+        # source imports, exports, and global pipeline status.
+        if not _legacy_project_exists(base_paths):
+            raise FileNotFoundError("Legacy project not found")
+        for directory in (base_paths.temp_dir / "audio", base_paths.temp_dir / "subtitles"):
+            if directory.is_symlink():
+                directory.unlink()
+            elif directory.exists():
+                shutil.rmtree(directory, onerror=_retry_readonly_removal)
+            directory.mkdir(parents=True, exist_ok=True)
+        for path in (base_paths.state_path, base_paths.overrides_path):
+            if path.exists():
+                try:
+                    path.unlink()
+                except PermissionError:
+                    os.chmod(path, stat.S_IWRITE)
+                    path.unlink()
+    else:
+        if project_id != _project_storage_key(project_id, "project"):
+            raise ValueError("Invalid project ID")
+        project_paths = _project_paths(base_paths, project_id)
+        projects_root = _projects_root(base_paths).resolve()
+        target = project_paths.temp_dir.resolve()
+        if target.parent != projects_root:
+            raise ValueError("Invalid project path")
+        if not project_paths.temp_dir.exists():
+            raise FileNotFoundError(f"Project directory not found: {project_paths.temp_dir}")
+        if project_paths.temp_dir.is_symlink():
+            project_paths.temp_dir.unlink()
+        else:
+            shutil.rmtree(project_paths.temp_dir, onerror=_retry_readonly_removal)
 
     remaining_projects = _list_projects(base_paths)
     next_project_id = remaining_projects[0]["id"] if remaining_projects else (LEGACY_PROJECT_KEY if _legacy_project_exists(base_paths) else "")
     _set_active_project_key(base_paths, next_project_id)
     return next_project_id
+
+
+def _retry_readonly_removal(function: Callable[..., Any], path: str, exc_info: Any) -> None:
+    error = exc_info[1]
+    if isinstance(error, PermissionError):
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+        return
+    raise error
 
 
 def _guess_input_audio_name(paths: EditorPaths, state: Mapping[str, Any]) -> str:
@@ -875,46 +982,22 @@ def _fetch_youtube_metadata(youtube_url: str) -> dict[str, str]:
     if hostname not in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"}:
         raise ValueError("YouTube URL field only accepts youtube.com or youtu.be links")
 
-    command = [
-        sys.executable,
-        "-m",
-        "yt_dlp",
-        "--dump-single-json",
-        "--no-playlist",
-        "--no-warnings",
-        "--socket-timeout",
-        "30",
-        *_youtube_runtime_args(),
-        normalized_url,
-    ]
-
     try:
-        completed = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=YOUTUBE_METADATA_TIMEOUT_SECONDS,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("yt-dlp is not installed or not available on PATH") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Timed out while reading YouTube metadata") from exc
-    except subprocess.CalledProcessError as exc:
-        stderr = (exc.stderr or "").strip()
-        stdout = (exc.stdout or "").strip()
-        detail = stderr or stdout or "yt-dlp failed to read YouTube metadata"
+        with YoutubeDL(_youtube_downloader_options(skip_download=True)) as downloader:
+            payload = downloader.extract_info(normalized_url, download=False)
+    except Exception as exc:
+        detail = _format_youtube_error(exc)
         raise RuntimeError(detail) from exc
-
-    try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("yt-dlp returned invalid metadata JSON") from exc
 
     if not isinstance(payload, Mapping):
         raise RuntimeError("yt-dlp metadata response was not an object")
 
-    LOGGER.info("yt-dlp info_dict: %s", json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    LOGGER.info(
+        "yt-dlp metadata: title=%r uploader=%r id=%r",
+        payload.get("title"),
+        payload.get("uploader") or payload.get("channel"),
+        payload.get("id"),
+    )
 
     def read_text(*keys: str) -> str:
         for key in keys:
@@ -969,59 +1052,37 @@ def _download_youtube_audio(paths: EditorPaths, youtube_url: str) -> Path:
 
     paths.input_dir.mkdir(parents=True, exist_ok=True)
     output_template = paths.input_dir / "%(title)s [%(id)s].%(ext)s"
-    command = [
-        sys.executable,
-        "-m",
-        "yt_dlp",
-        "--no-playlist",
-        "--extract-audio",
-        "--audio-format",
-        "mp3",
-        "--audio-quality",
-        "0",
-        "--socket-timeout",
-        "30",
-        "--retries",
-        "3",
-        "--no-progress",
-        *_youtube_runtime_args(),
-        "--print",
-        "after_move:filepath",
-        "--output",
-        str(output_template),
-        normalized_url,
-    ]
-
+    download_started_ns = time.time_ns()
     try:
-        completed = subprocess.run(
-            command,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS,
+        options = _youtube_downloader_options(
+            format="bestaudio/best",
+            outtmpl=str(output_template),
+            postprocessors=[
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "0",
+                }
+            ],
         )
-    except FileNotFoundError as exc:
-        raise RuntimeError("yt-dlp is not installed or not available on PATH") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Timed out while downloading audio from YouTube") from exc
-    except subprocess.CalledProcessError as exc:
-        stderr = (exc.stderr or "").strip()
-        stdout = (exc.stdout or "").strip()
-        detail = stderr or stdout or "yt-dlp failed to download the requested audio"
+        with YoutubeDL(options) as downloader:
+            info = downloader.extract_info(normalized_url, download=True)
+    except Exception as exc:
+        detail = _format_youtube_error(exc)
         raise RuntimeError(detail) from exc
 
-    output_lines = [
-        line.strip().strip('"')
-        for line in (completed.stdout or "").splitlines()
-        if line.strip()
-    ]
-    for candidate in reversed(output_lines):
-        candidate_path = Path(candidate).expanduser()
-        if candidate_path.exists():
-            return candidate_path.resolve()
+    if isinstance(info, Mapping):
+        final_path = str(info.get("filepath", "")).strip()
+        if final_path:
+            candidate_path = Path(final_path).expanduser()
+            if candidate_path.is_file():
+                return candidate_path.resolve()
 
     recent_downloads = sorted(
-        (path for path in paths.input_dir.glob("*.mp3") if path.is_file()),
+        (
+            path for path in paths.input_dir.glob("*.mp3")
+            if path.is_file() and path.stat().st_mtime_ns >= download_started_ns
+        ),
         key=lambda path: path.stat().st_mtime_ns,
         reverse=True,
     )
@@ -2844,23 +2905,45 @@ def _artifact_audio_path(paths: EditorPaths, artifact_name: str) -> Path:
     return paths.audio_path
 
 
-def _ensure_project_backing_track(paths: EditorPaths) -> Path:
+def _ensure_project_backing_track(
+    paths: EditorPaths,
+    *,
+    require_stems: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path:
     LOGGER.info("_ensure_project_backing_track started for project: %s", paths.state_path)
     preferred_audio = _manual_render_audio_path(paths)
     if preferred_audio.exists() and preferred_audio != paths.audio_path and preferred_audio.parent.resolve() == paths.audio_path.parent.resolve():
         LOGGER.info("_ensure_project_backing_track: using preferred audio %s", preferred_audio)
+        if require_stems and not paths.audio_path.with_name("vocals.wav").is_file():
+            raise RuntimeError("The existing accompaniment track has no matching vocals.wav stem")
         return preferred_audio
 
     if not paths.audio_path.exists():
         LOGGER.error("_ensure_project_backing_track: audio path does not exist: %s", paths.audio_path)
+        if require_stems:
+            raise FileNotFoundError(f"Project audio is missing: {paths.audio_path}")
         return paths.audio_path
 
     try:
         LOGGER.info("_ensure_project_backing_track: calling separate_vocals for %s", paths.audio_path)
-        separation_outputs = separate_vocals(paths.audio_path, paths.config_path)
+        if progress_callback is None:
+            separation_outputs = separate_vocals(paths.audio_path, paths.config_path)
+        else:
+            separation_outputs = separate_vocals(
+                paths.audio_path,
+                paths.config_path,
+                progress_callback=progress_callback,
+                cancel_check=cancel_check,
+            )
         LOGGER.info("_ensure_project_backing_track: separation completed. outputs: %s", separation_outputs)
     except Exception as exc:
+        if isinstance(exc, SeparationCancelledError):
+            raise
         LOGGER.exception("_ensure_project_backing_track: separation failed: %s", exc)
+        if require_stems:
+            raise RuntimeError(f"Stem separation failed: {exc}") from exc
         return paths.audio_path
 
     project_vocals_path = paths.audio_path.with_name("vocals.wav")
@@ -2873,6 +2956,9 @@ def _ensure_project_backing_track(paths: EditorPaths) -> Path:
         shutil.copyfile(source_vocals_path, project_vocals_path)
     if source_no_vocals_path.exists() and source_no_vocals_path.resolve() != project_no_vocals_path.resolve():
         shutil.copyfile(source_no_vocals_path, project_no_vocals_path)
+
+    if require_stems and not (project_vocals_path.is_file() and project_no_vocals_path.is_file()):
+        raise RuntimeError("Stem separation finished without producing both vocals.wav and no_vocals.wav")
 
     state = _state_payload(paths)
     existing_artifacts = state.get("artifacts", {})
@@ -3195,9 +3281,25 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
     base_paths = _editor_paths(config_path)
     app = Flask(__name__)
     app.config["TIMING_EDITOR_PATHS"] = base_paths
+    app.config["CORE_EDITION"] = os.environ.get("KARAOKE_CORE_EDITION", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     app.config["PIPELINE_LOCK"] = threading.Lock()
-    app.config["PIPELINE_JOB"] = _read_pipeline_job(base_paths)
+    startup_pipeline_job = _read_pipeline_job(base_paths)
+    if (
+        str(startup_pipeline_job.get("status", "")).lower() == "running"
+        and str(startup_pipeline_job.get("current_stage_key", "")) == "stem_separation"
+    ):
+        # Separation runs in this app process and cannot survive an app restart.
+        # Do not resurrect a persisted spinner for work that no longer exists.
+        startup_pipeline_job = _default_pipeline_job()
+        _write_pipeline_job(base_paths, startup_pipeline_job)
+    app.config["PIPELINE_JOB"] = startup_pipeline_job
     app.config["PIPELINE_WORKER"] = None
+    app.config["PIPELINE_CANCEL_EVENT"] = None
     app.config["EXPORT_JOB"] = {
         "status": "idle",
         "detail": None,
@@ -3485,10 +3587,11 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
 
         try:
             mark("stem_separation", "running", "Preparing vocal stems")
-            try:
-                _ensure_project_backing_track(project_paths)
-            except Exception:
-                pass
+            _ensure_project_backing_track(
+                project_paths,
+                require_stems=True,
+                progress_callback=lambda detail: mark("stem_separation", "running", detail),
+            )
             mark("stem_separation", "done", "Vocal stems ready")
             
             # Use "completed" instead of "idle" to trigger the frontend's auto-refresh logic
@@ -3553,7 +3656,15 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
 
         if app.testing:
             try:
-                return 200, _run_audio_import_job(raw_payload, job_id)
+                result = _run_audio_import_job(raw_payload, job_id)
+                result.update(
+                    {
+                        "lyrics_source_url": setup_info.get("lyrics_source_url", ""),
+                        "lyrics_title": setup_info.get("lyrics_title", ""),
+                        "lyrics_found": setup_info.get("lyrics_found", False),
+                    }
+                )
+                return 200, result
             except ValueError as exc:
                 return 400, {"error": str(exc), "job_id": job_id}
             except RuntimeError as exc:
@@ -3577,7 +3688,10 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             "status": "running", 
             "message": "Audio import started",
             "project_id": project_key,
-            "project_name": project_name
+            "project_name": project_name,
+            "lyrics_source_url": setup_info.get("lyrics_source_url", ""),
+            "lyrics_title": setup_info.get("lyrics_title", ""),
+            "lyrics_found": setup_info.get("lyrics_found", False),
         }
 
     def _setup_youtube_project(raw_payload: Mapping[str, Any], job_id: str) -> dict[str, Any]:
@@ -3599,8 +3713,8 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         discovered_details: dict[str, str] = {}
         try:
             discovered_details = _discover_project_details_from_youtube(youtube_url, original_name)
-        except Exception:
-            discovered_details = {}
+        except Exception as exc:
+            LOGGER.warning("YouTube metadata/lyrics discovery failed; continuing without automatic lyrics: %s", exc)
         
         resolved_lyrics_text = requested_lyrics_text or str(discovered_details.get("lyrics_text", "")).strip()
         resolved_project_name = (
@@ -3644,7 +3758,12 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             lyrics_source_url=str(discovered_details.get("lyrics_source_url", "")).strip(),
         )
         job = _read_pipeline_job(base_paths)
-        job = _update_pipeline_stage(base_paths, job, "lyrics_fetch", "done", "Lyrics fetched and project created")
+        lyrics_detail = (
+            "Lyrics fetched and project created"
+            if resolved_lyrics_text
+            else "No lyrics match found; project created without lyrics"
+        )
+        job = _update_pipeline_stage(base_paths, job, "lyrics_fetch", "done", lyrics_detail)
         set_pipeline_job(
             current_stage_key="stem_separation",
             current_stage_label="Stem separation",
@@ -3660,7 +3779,11 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             "lyrics_found": bool(resolved_lyrics_text),
         }
 
-    def _run_youtube_import_job(raw_payload: Mapping[str, Any], job_id: str) -> dict[str, Any]:
+    def _run_youtube_import_job(
+        raw_payload: Mapping[str, Any],
+        job_id: str,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
         """Worker job that handles the slow parts of YouTube import (stem separation)."""
         # We assume _setup_youtube_project has already run synchronously.
         # We just need to retrieve the current project state.
@@ -3678,11 +3801,15 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
 
         try:
             mark("stem_separation", "running", "Running stem separation")
-            try:
-                _ensure_project_backing_track(project_paths)
-            except Exception:
-                pass
-            mark("stem_separation", "done", "Editor project ready")
+            if cancel_event is not None and cancel_event.is_set():
+                raise SeparationCancelledError("Stem separation cancelled")
+            _ensure_project_backing_track(
+                project_paths,
+                require_stems=True,
+                progress_callback=lambda detail: mark("stem_separation", "running", detail),
+                cancel_check=cancel_event.is_set if cancel_event is not None else None,
+            )
+            mark("stem_separation", "done", "Vocals and accompaniment stems ready")
             
             # Use "completed" instead of "idle" to trigger the frontend's auto-refresh logic
             set_pipeline_job(
@@ -3708,6 +3835,18 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
                 "stages": final_job.get("stages", []),
             }
 
+        except SeparationCancelledError:
+            mark("stem_separation", "cancelled", "Stem separation cancelled")
+            set_pipeline_job(
+                status="cancelled",
+                updated_at=_timestamp(),
+                error=None,
+                current_stage_key="",
+                current_stage_label="",
+                stage_started_at=None,
+                stages=_read_pipeline_job(base_paths).get("stages", _default_pipeline_job()["stages"]),
+            )
+            raise
         except Exception as exc:
             mark("stem_separation", "error", str(exc))
             set_pipeline_job(
@@ -3765,10 +3904,12 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             )
             LOGGER.exception("YouTube import failed for job %s: %s", job_id, error_text)
 
+        cancel_event = threading.Event()
+
         if app.testing:
             try:
                 setup_info = _setup_youtube_project(raw_payload, job_id)
-                result = _run_youtube_import_job(raw_payload, job_id)
+                result = _run_youtube_import_job(raw_payload, job_id, cancel_event)
                 result.update(
                     {
                         "lyrics_source_url": setup_info.get("lyrics_source_url", ""),
@@ -3790,11 +3931,25 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
         def worker() -> None:
             try:
                 _setup_youtube_project(raw_payload, job_id)
-                _run_youtube_import_job(raw_payload, job_id)
+                _run_youtube_import_job(raw_payload, job_id, cancel_event)
+            except SeparationCancelledError:
+                LOGGER.info("YouTube import separation cancelled for job %s", job_id)
             except Exception as exc:
                 fail_pipeline(exc)
+            finally:
+                current_worker = app.config.get("PIPELINE_WORKER")
+                if isinstance(current_worker, dict) and current_worker.get("job_id") == job_id:
+                    app.config["PIPELINE_WORKER"] = None
+                    app.config["PIPELINE_CANCEL_EVENT"] = None
 
         thread = threading.Thread(target=worker, daemon=True)
+        app.config["PIPELINE_CANCEL_EVENT"] = cancel_event
+        app.config["PIPELINE_WORKER"] = {
+            "kind": "youtube_import",
+            "job_id": job_id,
+            "thread": thread,
+            "project_key": "",
+        }
         thread.start()
         
         return 202, {
@@ -3917,7 +4072,15 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
     def editor_index() -> Response:
         if not base_paths.ui_path.exists():
             return _json_response({"error": f"UI file not found: {base_paths.ui_path}"}, status=404)
-        return send_file(base_paths.ui_path)
+        if not app.config.get("CORE_EDITION"):
+            return send_file(base_paths.ui_path)
+        document = base_paths.ui_path.read_text(encoding="utf-8")
+        document = document.replace(
+            '<meta name="karaoke-edition" content="full">',
+            '<meta name="karaoke-edition" content="core">',
+            1,
+        )
+        return Response(document, mimetype="text/html")
 
     @app.get("/api/sounds/<sound_name>")
     def api_completion_sound(sound_name: str) -> Response:
@@ -4048,6 +4211,8 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             return _json_response({"error": "Request body must be a JSON object"}, status=400)
 
         project_id = str(raw_payload.get("project_id", "")).strip() or (_active_project_key(base_paths) or "")
+        if str(_read_pipeline_job(base_paths).get("status", "")).lower() == "running":
+            return _json_response({"error": "Wait for the current process to finish before deleting a project."}, status=409)
         try:
             next_project_id = _delete_project(base_paths, project_id)
         except (FileNotFoundError, ValueError) as exc:
@@ -4183,6 +4348,11 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
 
     @app.post("/api/pipeline/first-pass")
     def api_pipeline_first_pass() -> Response:
+        if app.config.get("CORE_EDITION"):
+            return _json_response(
+                {"error": "AI First Pass is available in the Karaoke Studio AI package."},
+                status=404,
+            )
         status_code, payload = start_ai_first_pass_job()
         return _json_response(payload, status=status_code)
 
@@ -4190,6 +4360,7 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
     def api_pipeline_stop() -> Response:
         worker = _current_pipeline_worker()
         stopped = False
+        cancelling = False
         pid = None
         if worker is not None:
             process = worker.get("process")
@@ -4208,9 +4379,25 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
                         process.close()
                     except Exception:
                         pass
-        _clear_pipeline_worker()
-        set_pipeline_job(**_default_pipeline_job())
-        return _json_response({"ok": True, "status": "idle", "stopped": stopped, "pid": pid})
+            cancel_event = app.config.get("PIPELINE_CANCEL_EVENT")
+            thread = worker.get("thread")
+            if cancel_event is not None and isinstance(thread, threading.Thread) and thread.is_alive():
+                cancel_event.set()
+                stopped = True
+                cancelling = True
+            else:
+                _clear_pipeline_worker()
+                app.config["PIPELINE_CANCEL_EVENT"] = None
+        if not cancelling:
+            set_pipeline_job(**_default_pipeline_job())
+        return _json_response(
+            {
+                "ok": True,
+                "status": "cancelling" if cancelling else "idle",
+                "stopped": stopped,
+                "pid": pid,
+            }
+        )
 
     @app.post("/api/fetch_lyrics")
     def api_fetch_lyrics() -> Response:
@@ -4489,14 +4676,29 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             return _json_response({"error": f"Output video not found: {output_path}"}, status=404)
 
         try:
-            if os.name == "nt":
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(output_path)], check=True)
+            elif os.name == "nt":
                 os.startfile(str(output_path))  # type: ignore[attr-defined]
             else:
+                subprocess.run(["xdg-open", str(output_path)], check=True)
+        except Exception:
+            try:
                 webbrowser.open(output_path.resolve().as_uri())
-        except Exception as exc:
-            return _json_response({"error": f"Could not open output video: {exc}"}, status=500)
+            except Exception as exc:
+                return _json_response({"error": f"Could not open output video: {exc}"}, status=500)
 
         return _json_response({"ok": True, "output_video": str(output_path)})
+
+    @app.post("/api/open-youtube-playlists")
+    def api_open_youtube_playlists() -> Response:
+        try:
+            opened = webbrowser.open(ISRAELI_MUSIC_PLAYLISTS_URL)
+        except Exception as exc:
+            return _json_response({"error": f"Could not open YouTube playlists: {exc}"}, status=500)
+        if not opened:
+            return _json_response({"error": "The system could not open the YouTube playlists link"}, status=500)
+        return _json_response({"ok": True, "url": ISRAELI_MUSIC_PLAYLISTS_URL})
 
     @app.get("/api/export/video")
     def api_export_video() -> Response:

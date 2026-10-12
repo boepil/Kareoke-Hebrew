@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -46,6 +47,20 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
         loaded = yaml.safe_load(handle) or {}
     if not isinstance(loaded, dict):
         raise ValueError(f"Config file must contain a mapping: {config_file}")
+    runtime_data_root = os.environ.get("KARAOKE_USER_DATA_DIR", "").strip()
+    if runtime_data_root:
+        writable_root = Path(runtime_data_root).expanduser().resolve()
+        configured_paths = loaded.get("paths")
+        paths = dict(configured_paths) if isinstance(configured_paths, Mapping) else {}
+        paths.update(
+            {
+                "input_dir": str(writable_root / "input"),
+                "output_dir": str(writable_root / "output"),
+                "temp_dir": str(writable_root / "temp"),
+                "logs_dir": str(writable_root / "logs"),
+            }
+        )
+        loaded["paths"] = paths
     return loaded
 
 

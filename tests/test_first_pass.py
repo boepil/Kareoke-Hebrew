@@ -125,7 +125,7 @@ def test_first_pass_pipeline_uses_vocals_stem(tmp_path: Path) -> None:
         _write_wav(Path(output_path))
         return Path(output_path)
 
-    def fake_separate(input_path, config):
+    def fake_separate(input_path, config, **_kwargs):
         vocals = temp_dir / "vocals.wav"
         no_vocals = temp_dir / "no_vocals.wav"
         _write_wav(vocals)

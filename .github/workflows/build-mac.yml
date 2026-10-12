@@ -1,0 +1,67 @@
+name: Build Karaoke Studio Core (macOS Apple Silicon)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packaging/**'
+      - 'modules/**'
+      - 'timing_editor.py'
+      - 'main.py'
+      - 'requirements*.txt'
+      - 'ui/**'
+      - '.github/workflows/build-mac.yml'
+
+jobs:
+  build-and-test:
+    name: Build & Test on Apple Silicon (macOS 14 arm64)
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-mac-build.txt
+
+      - name: Install system dependencies (FFmpeg & Deno)
+        run: |
+          brew install ffmpeg deno
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r packaging/requirements-mac-build.txt
+
+      - name: Run cross-platform and timing editor tests on Apple Silicon
+        run: |
+          python -m pytest tests/test_macos_compatibility.py tests/test_timing_editor.py -v
+
+      - name: Build macOS Application and DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KARAOKE_FFMPEG_PATH: /opt/homebrew/bin/ffmpeg
+          KARAOKE_DENO_PATH: /opt/homebrew/bin/deno
+        run: |
+          chmod +x packaging/build_mac.sh
+          ./packaging/build_mac.sh
+
+      - name: Upload macOS DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KaraokeStudioCore-macOS-AppleSilicon
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 30
