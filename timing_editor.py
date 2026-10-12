@@ -4700,15 +4700,94 @@ def create_app(config_path: str | Path = "config.yaml") -> Flask:
             return _json_response({"error": "The system could not open the YouTube playlists link"}, status=500)
         return _json_response({"ok": True, "url": ISRAELI_MUSIC_PLAYLISTS_URL})
 
+    @app.get("/api/library/videos")
+    def api_library_videos() -> Response:
+        try:
+            config = load_config(base_paths.config_path)
+            output_dir = _resolve_from_config(base_paths.config_path.parent, str(config["paths"]["output_dir"]))
+            projects_root = _projects_root(base_paths)
+            videos: list[dict[str, Any]] = []
+
+            if output_dir.exists():
+                for mp4_path in sorted(output_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True):
+                    try:
+                        st = mp4_path.stat()
+                        file_name = mp4_path.name
+                        # Clean title e.g. "Song (Kareoke).mp4" -> "Song"
+                        base_name = file_name
+                        if base_name.lower().endswith(" (kareoke).mp4"):
+                            base_name = base_name[:-14].strip()
+                        elif base_name.lower().endswith(".mp4"):
+                            base_name = base_name[:-4].strip()
+
+                        # Check if a project directory matches
+                        matching_project_id = ""
+                        if projects_root.exists() and (projects_root / base_name).is_dir():
+                            matching_project_id = base_name
+                        elif _legacy_project_exists(base_paths) and base_name == "Legacy Project":
+                            matching_project_id = LEGACY_PROJECT_KEY
+
+                        videos.append({
+                            "filename": file_name,
+                            "title": base_name,
+                            "size_bytes": st.st_size,
+                            "size_formatted": f"{st.st_size / (1024 * 1024):.1f} MB",
+                            "mtime": st.st_mtime,
+                            "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
+                            "matching_project_id": matching_project_id,
+                            "video_url": f"/api/export/video?filename={file_name}",
+                        })
+                    except Exception as err:
+                        LOGGER.warning("Could not stat MP4 %s: %s", mp4_path, err)
+            return _json_response({"ok": True, "videos": videos})
+        except Exception as exc:
+            return _json_response({"error": f"Failed to list library videos: {exc}"}, status=500)
+
+    @app.post("/api/library/reveal")
+    def api_library_reveal() -> Response:
+        payload = request.get_json(silent=True) or {}
+        filename = str(payload.get("filename", "")).strip()
+        config = load_config(base_paths.config_path)
+        output_dir = _resolve_from_config(base_paths.config_path.parent, str(config["paths"]["output_dir"]))
+        if filename:
+            target_path = (output_dir / filename).resolve()
+        else:
+            target_path = output_dir.resolve()
+
+        if not target_path.exists():
+            return _json_response({"error": "Target path not found"}, status=404)
+
+        try:
+            if sys.platform == "win32":
+                if target_path.is_file():
+                    subprocess.Popen(["explorer.exe", f"/select,{str(target_path)}"])
+                else:
+                    subprocess.Popen(["explorer.exe", str(target_path)])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R" if target_path.is_file() else "", str(target_path)])
+            else:
+                subprocess.Popen(["xdg-open", str(target_path.parent if target_path.is_file() else target_path)])
+            return _json_response({"ok": True})
+        except Exception as exc:
+            return _json_response({"error": f"Failed to reveal in file manager: {exc}"}, status=500)
+
     @app.get("/api/export/video")
     def api_export_video() -> Response:
-        project_name = request.args.get("project_name", "").strip()
-        output_path = _resolve_output_video_path(base_paths, project_name)
-        if not output_path:
-            output_path = _default_output_video_path(current_paths())
+        filename = request.args.get("filename", "").strip()
+        config = load_config(base_paths.config_path)
+        output_dir = _resolve_from_config(base_paths.config_path.parent, str(config["paths"]["output_dir"]))
+        if filename:
+            # Prevent directory traversal
+            clean_filename = Path(filename).name
+            output_path = output_dir / clean_filename
+        else:
+            project_name = request.args.get("project_name", "").strip()
+            output_path = _resolve_output_video_path(base_paths, project_name)
+            if not output_path:
+                output_path = _default_output_video_path(current_paths())
         if not output_path.exists():
             return _json_response({"error": "Output video not found"}, status=404)
-        return send_file(str(output_path), mimetype="video/mp4")
+        return send_file(str(output_path), mimetype="video/mp4", conditional=True)
 
     @app.get("/api/export/video/status")
     def api_export_video_status() -> Response:

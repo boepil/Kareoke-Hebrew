@@ -1493,8 +1493,8 @@
     .time-readout { min-width: 112px; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-2); direction: ltr; }
     .wave-transport input[type="range"] { min-height: 24px; direction: ltr; }
     .drawer { width: auto; min-width: 0; flex: none; height: 100%; min-height: 0; border: 1px solid var(--border); border-radius: var(--r-card); background: linear-gradient(160deg, rgba(32,40,52,.98), rgba(25,31,42,.98)); box-shadow: var(--shadow); }
-    .drawer-tabs { display: grid; grid-template-columns: 40px 1fr 1fr; gap: 5px; padding: 6px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
-    .drawer-tab { min-height: 42px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; font-size: 12px; }
+    .drawer-tabs { display: grid; grid-template-columns: 40px 1fr 1fr 1fr; gap: 5px; padding: 6px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+    .drawer-tab { min-height: 42px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 10px; font-size: 12px; }
     .drawer-tab.active { color: var(--accent); background: var(--bg-input-hover); border-bottom: 0; }
     .drawer-close { display: none; }
     .drawer-header { display: flex; padding: 12px 14px 0; border-bottom: 0; }
@@ -1508,6 +1508,219 @@
     .drawer-footer { margin-top: auto; padding: 12px 14px 14px; border-top: 1px solid var(--border); }
     .drawer-footer .btn-primary { background: var(--green); border-color: var(--green); color: #102419; }
     .drawer-footer .btn-primary:hover:not(:disabled) { background: #a0e2b5; border-color: #a0e2b5; }
+
+    /* Mode Switcher */
+    .mode-switcher {
+      display: inline-flex;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 3px;
+      gap: 3px;
+    }
+    .mode-btn {
+      min-height: 36px;
+      height: 36px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text-2);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .mode-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .mode-btn.active {
+      background: var(--accent);
+      color: #241612;
+      box-shadow: 0 2px 8px rgba(255, 149, 109, 0.35);
+    }
+
+    /* Theater Viewing in Main Workspace */
+    .editor.in-library-mode {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 14px !important;
+      height: 100% !important;
+    }
+    .editor.in-library-mode .preview,
+    .editor.in-library-mode .toolbar,
+    .editor.in-library-mode .wave-shell {
+      display: none !important;
+    }
+    .theater-video {
+      width: 100%;
+      flex: 1 1 auto;
+      min-height: 0;
+      height: 100%;
+      max-height: calc(100vh - 200px);
+      object-fit: contain;
+      background: #000;
+      border-radius: var(--r-card);
+      border: 1px solid var(--border);
+      box-shadow: 0 16px 50px rgba(0, 0, 0, 0.6);
+    }
+    .theater-video[hidden] {
+      display: none !important;
+    }
+    .theater-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      min-height: 60px;
+      margin-top: auto;
+    }
+    .theater-strip[hidden] {
+      display: none !important;
+    }
+    .theater-info {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      gap: 2px;
+    }
+    .theater-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .theater-meta {
+      font-size: 11px;
+      color: var(--muted-2);
+      direction: ltr;
+      text-align: right;
+    }
+    .theater-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .theater-actions button {
+      min-height: 38px;
+      height: 38px;
+      padding: 0 12px;
+      font-size: 13px;
+    }
+
+    /* Library Tab List in Right Drawer */
+    .library-section {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+    }
+    .library-search-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .library-search-wrap input {
+      min-height: 38px;
+      height: 38px;
+      padding-inline: 12px 32px;
+      font-size: 13px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .library-search-wrap svg {
+      position: absolute;
+      right: 10px;
+      color: var(--muted-2);
+      pointer-events: none;
+    }
+    .library-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-right: 2px;
+    }
+    .library-scroll::-webkit-scrollbar { width: 3px; }
+    .library-scroll::-webkit-scrollbar-thumb { background: var(--muted-2); border-radius: 3px; }
+    .library-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .library-item:hover {
+      background: var(--bg-input-hover);
+      border-color: rgba(255, 149, 109, 0.4);
+      transform: translateY(-1px);
+    }
+    .library-item.active {
+      background: rgba(255, 149, 109, 0.12);
+      border-color: var(--accent);
+      box-shadow: 0 2px 10px rgba(255, 149, 109, 0.15);
+    }
+    .library-item-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .library-item-title {
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+    .library-item.active .library-item-title {
+      color: var(--accent);
+    }
+    .library-item-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--muted-2);
+      direction: ltr;
+    }
+    .library-badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(131, 214, 160, 0.15);
+      color: var(--green);
+    }
+    .library-empty {
+      text-align: center;
+      padding: 30px 10px;
+      color: var(--muted-2);
+      font-size: 13px;
+    }
     .drawer #searchLyrics,
     .drawer #useLyricsBtn,
     .drawer #tryNextSourceBtn { font-size: 13px; padding-inline: 10px; }
@@ -1549,7 +1762,25 @@
         </a>
         <div class="app-brand-copy"><strong>Karaoke Studio</strong><span>iPad studio</span></div>
       </div>
-      <div class="app-title"><small>פרויקט פעיל</small><input id="projectTitle" class="project-title-input" type="text" placeholder="זמר / שם פרויקט"></div>
+      <div class="app-title">
+        <div class="mode-switcher" id="modeSwitcher">
+          <button type="button" class="mode-btn active" id="modeEditorBtn" data-mode="editor">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            עורך תזמונים
+          </button>
+          <button type="button" class="mode-btn" id="modeLibraryBtn" data-mode="library">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            ספריית וידאו
+          </button>
+        </div>
+        <small id="projectSubtitle">פרויקט פעיל</small>
+        <input id="projectTitle" class="project-title-input" type="text" placeholder="זמר / שם פרויקט">
+      </div>
       <div class="app-actions">
         <button class="btn-primary top-save" id="saveProject">שמירת פרויקט ✓</button>
         <button class="btn-primary top-export" id="exportMp4">ייצוא MP4</button>
@@ -1670,13 +1901,14 @@
       </aside>
 
       <main class="workspace">
-        <section class="section editor" style="position: relative;">
+        <section class="section editor" id="editorSection" style="position: relative;">
           <div class="preview empty" id="preview">ייבאו פרויקט כדי להתחיל</div>
+          <video class="theater-video" id="theaterVideo" controls playsinline hidden></video>
           <textarea id="lyricsText" hidden></textarea>
           <audio id="audio" controls preload="metadata"></audio>
           <audio id="vocalsAudio" preload="metadata"></audio>
           <audio id="musicAudio" preload="metadata"></audio>
-<div class="toolbar">
+          <div class="toolbar" id="editorToolbar">
               <div class="toolbar-left">
                 <button class="secondary" id="jumpWord">סנכרון</button>
                 <button class="primary" id="placeWord">אישור מילה</button>
@@ -1723,12 +1955,36 @@
               <input id="wavePan" type="range" min="0" max="0" step="0.01" value="0">
             </div>
           </div>
+
+          <!-- Bottom Control & Metadata Strip (Active in Library Mode) -->
+          <div class="theater-strip" id="theaterStrip" hidden>
+            <div class="theater-info">
+              <div class="theater-title" id="theaterTitle">בחר שיר מהספרייה</div>
+              <div class="theater-meta" id="theaterMeta">0 שירים זמינים</div>
+            </div>
+            <div class="theater-actions">
+              <button type="button" class="btn-primary" id="theaterEditBtn" disabled title="פתיחת הפרויקט בעורך התזמונים">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 20h9"/>
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                עריכה בסקיצה
+              </button>
+              <button type="button" class="btn-outline" id="theaterRevealBtn" title="פתיחת מיקום הקובץ בסייר הקבצים">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+                סייר קבצים
+              </button>
+            </div>
+          </div>
         </section>
         <aside class="drawer" id="rightDrawer">
           <div class="drawer-tabs">
             <button class="panel-toggle drawer-toggle" id="toggleRight" aria-label="סגירת לוח המילים" title="סגירת לוח המילים">▶</button>
             <div class="drawer-tab active" data-tab="editor">מילים</div>
             <div class="drawer-tab" data-tab="import">ייבוא</div>
+            <div class="drawer-tab" data-tab="library">ספרייה</div>
           </div>
           <button class="drawer-close" id="closeDrawer" aria-label="סגירה">✕</button>
           <div class="drawer-header">
@@ -1802,6 +2058,21 @@
                       <button id="manualLlmBtn" class="secondary" style="flex:1;font-size:12px;padding:6px 8px;">חילוץ LLM</button>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+            <!-- Library tab content -->
+            <div class="drawer-tab-content" id="tabLibrary" hidden>
+              <div class="library-section">
+                <div class="library-search-wrap">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <input type="text" id="librarySearch" placeholder="חיפוש בספרייה...">
+                </div>
+                <div class="library-scroll" id="libraryList">
+                  <div class="library-empty">טוען ספריית שירים...</div>
                 </div>
               </div>
             </div>
@@ -1929,10 +2200,34 @@
       manualLlmBtn: $("manualLlmBtn"),
 
       shortcutHint: $("shortcutHint"),
+
+      // Mode Switcher & Theater UI
+      modeSwitcher: $("modeSwitcher"),
+      modeEditorBtn: $("modeEditorBtn"),
+      modeLibraryBtn: $("modeLibraryBtn"),
+      editorSection: $("editorSection"),
+      preview: $("preview"),
+      previewLyricsContent: $("previewLyricsContent"),
+      editorToolbar: $("editorToolbar"),
+      waveShell: $("waveShell"),
+      theaterStrip: $("theaterStrip"),
+      theaterVideo: $("theaterVideo"),
+      theaterTitle: $("theaterTitle"),
+      theaterMeta: $("theaterMeta"),
+      theaterEditBtn: $("theaterEditBtn"),
+      theaterRevealBtn: $("theaterRevealBtn"),
+
+      // Library Tab UI
+      tabLibrary: $("tabLibrary"),
+      librarySearch: $("librarySearch"),
+      libraryList: $("libraryList"),
     };
 
     const state = {
       coreEdition: document.querySelector('meta[name="karaoke-edition"]')?.content === "core",
+      currentMode: "editor", // "editor" | "library"
+      libraryVideos: [],
+      selectedVideo: null,
       railOpen: true,
       session: null,
       projects: [],
@@ -2787,18 +3082,186 @@
     }
 
     function openVideoPlayer() {
+      // Instead of opening a small modal dialog, switch straight to Theater/Library mode
+      switchAppMode("library");
+      if (state.session?.project_name) {
+        // Find if this project's video exists in library
+        const match = state.libraryVideos.find((v) => v.matching_project_id === state.session.project_name || v.title === state.session.project_name);
+        if (match) {
+          playTheaterVideo(match);
+          return;
+        }
+      }
       const projectName = encodeURIComponent(state.session?.project_name || "");
-      ui.videoPlayer.src = `/api/export/video?project_name=${projectName}&t=${Date.now()}`;
-      ui.videoPlayerOverlay.hidden = false;
-      ui.videoPlayer.load();
-      ui.videoPlayer.play().catch(() => {});
+      if (ui.theaterVideo) {
+        ui.theaterVideo.src = `/api/export/video?project_name=${projectName}&t=${Date.now()}`;
+        ui.theaterVideo.load();
+        ui.theaterVideo.play().catch(() => {});
+        ui.theaterTitle.textContent = state.session?.project_name || "וידאו שיוצא";
+        ui.theaterMeta.textContent = "פרויקט פעיל";
+      }
     }
 
     function closeVideoPlayer() {
-      ui.videoPlayer.pause();
-      ui.videoPlayer.removeAttribute("src");
-      ui.videoPlayer.load();
-      ui.videoPlayerOverlay.hidden = true;
+      if (ui.videoPlayer) {
+        ui.videoPlayer.pause();
+        ui.videoPlayer.removeAttribute("src");
+        ui.videoPlayer.load();
+      }
+      if (ui.videoPlayerOverlay) {
+        ui.videoPlayerOverlay.hidden = true;
+      }
+    }
+
+    /* --- Theater & Library Logic --- */
+    function switchAppMode(mode) {
+      state.currentMode = mode;
+      const isLibrary = mode === "library";
+
+      // Update mode buttons
+      if (ui.modeEditorBtn && ui.modeLibraryBtn) {
+        ui.modeEditorBtn.classList.toggle("active", !isLibrary);
+        ui.modeLibraryBtn.classList.toggle("active", isLibrary);
+      }
+
+      // Update mode buttons
+      if (ui.modeEditorBtn && ui.modeLibraryBtn) {
+        ui.modeEditorBtn.classList.toggle("active", !isLibrary);
+        ui.modeLibraryBtn.classList.toggle("active", isLibrary);
+      }
+
+      // Toggle layout class on editorSection
+      if (ui.editorSection) {
+        ui.editorSection.classList.toggle("in-library-mode", isLibrary);
+      }
+
+      // Live Preview vs Theater Video: in library mode, hide lyrics preview and show theater video
+      if (ui.preview) {
+        ui.preview.hidden = isLibrary;
+      }
+      if (ui.theaterVideo) {
+        ui.theaterVideo.hidden = !isLibrary;
+      }
+
+      // Bottom Panels: switch between waveform/editor toolbar and theater metadata/controls strip
+      if (ui.editorToolbar) {
+        ui.editorToolbar.hidden = isLibrary;
+      }
+      if (ui.waveShell) {
+        ui.waveShell.hidden = isLibrary;
+      }
+      if (ui.theaterStrip) {
+        ui.theaterStrip.hidden = !isLibrary;
+      }
+
+      if (isLibrary) {
+        // Pause editor audio when entering library
+        if (ui.audio && !ui.audio.paused) ui.audio.pause();
+        if (ui.vocalsAudio && !ui.vocalsAudio.paused) ui.vocalsAudio.pause();
+        if (ui.musicAudio && !ui.musicAudio.paused) ui.musicAudio.pause();
+
+        // Switch right drawer to Library tab
+        activateDrawerTab("library");
+        loadLibrary();
+      } else {
+        // Pause theater video when returning to editor
+        if (ui.theaterVideo && !ui.theaterVideo.paused) {
+          ui.theaterVideo.pause();
+        }
+        activateDrawerTab("editor");
+        renderAll();
+      }
+    }
+
+    function activateDrawerTab(tabName) {
+      document.querySelectorAll(".drawer-tab").forEach((t) => {
+        t.classList.toggle("active", t.dataset.tab === tabName);
+      });
+      document.querySelectorAll(".drawer-tab-content").forEach((c) => {
+        c.hidden = true;
+      });
+      const target = document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
+      if (target) target.hidden = false;
+      // Ensure drawer is open
+      if (!state.drawerOpen && typeof toggleDrawer === "function") {
+        toggleDrawer();
+      }
+    }
+
+    async function loadLibrary() {
+      try {
+        const resp = await fetch("/api/library/videos");
+        if (!resp.ok) throw new Error("Network error fetching library");
+        const data = await resp.json();
+        if (data.ok && Array.isArray(data.videos)) {
+          state.libraryVideos = data.videos;
+          renderLibraryList();
+          // If no video is selected yet, pick the first video or the current project's video
+          if (!state.selectedVideo && data.videos.length > 0) {
+            const currentProj = state.session?.project_name;
+            const match = currentProj ? data.videos.find((v) => v.matching_project_id === currentProj || v.title === currentProj) : null;
+            playTheaterVideo(match || data.videos[0], false);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load library:", err);
+        if (ui.libraryList) {
+          ui.libraryList.innerHTML = `<div class="library-empty">שגיאה בטעינת הספרייה</div>`;
+        }
+      }
+    }
+
+    function renderLibraryList() {
+      if (!ui.libraryList) return;
+      const query = (ui.librarySearch?.value || "").trim().toLowerCase();
+      const filtered = state.libraryVideos.filter((v) => {
+        if (!query) return true;
+        return v.title.toLowerCase().includes(query) || v.filename.toLowerCase().includes(query);
+      });
+
+      if (filtered.length === 0) {
+        ui.libraryList.innerHTML = `<div class="library-empty">${query ? "לא נמצאו שירים תואמים" : "אין עדיין סרטוני MP4 שיוצאו"}</div>`;
+        return;
+      }
+
+      ui.libraryList.innerHTML = "";
+      filtered.forEach((video) => {
+        const item = document.createElement("div");
+        const isSelected = state.selectedVideo && state.selectedVideo.filename === video.filename;
+        item.className = `library-item${isSelected ? " active" : ""}`;
+        item.innerHTML = `
+          <div class="library-item-header">
+            <span class="library-item-title" title="${video.title}">${video.title}</span>
+            <span class="library-badge">MP4</span>
+          </div>
+          <div class="library-item-meta">
+            <span>${video.size_formatted}</span>
+            <span>•</span>
+            <span>${video.modified_at}</span>
+          </div>
+        `;
+        item.addEventListener("click", () => {
+          playTheaterVideo(video, true);
+        });
+        ui.libraryList.appendChild(item);
+      });
+    }
+
+    function playTheaterVideo(video, autoPlay = true) {
+      if (!video || !ui.theaterVideo) return;
+      state.selectedVideo = video;
+      ui.theaterVideo.src = `${video.video_url}&t=${Date.now()}`;
+      ui.theaterTitle.textContent = video.title;
+      ui.theaterMeta.textContent = `${video.size_formatted} • עודכן: ${video.modified_at}`;
+      if (ui.theaterEditBtn) {
+        ui.theaterEditBtn.disabled = !video.matching_project_id;
+      }
+      ui.theaterVideo.load();
+      if (autoPlay) {
+        ui.theaterVideo.play().catch(() => {});
+      }
+      // Re-highlight active item in list
+      renderLibraryList();
     }
 
     function renderSetupInput(source) {
@@ -5792,8 +6255,68 @@
           document.querySelectorAll(".drawer-tab-content").forEach((c) => c.hidden = true);
           const target = document.getElementById(`tab${tab.dataset.tab.replace(/^./, (c) => c.toUpperCase())}`);
           if (target) target.hidden = false;
+          if (tab.dataset.tab === "library") {
+            loadLibrary();
+          }
         });
       });
+
+      // Mode Switcher Events
+      if (ui.modeEditorBtn) {
+        ui.modeEditorBtn.addEventListener("click", () => switchAppMode("editor"));
+      }
+      if (ui.modeLibraryBtn) {
+        ui.modeLibraryBtn.addEventListener("click", () => switchAppMode("library"));
+      }
+
+      // Theater Action Buttons
+      if (ui.theaterEditBtn) {
+        ui.theaterEditBtn.addEventListener("click", async () => {
+          if (!state.selectedVideo?.matching_project_id) return;
+          const projId = state.selectedVideo.matching_project_id;
+          try {
+            await fetchJson("/api/projects/select", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_id: projId }),
+            });
+            switchAppMode("editor");
+            await loadProject({ bustCache: true });
+          } catch (err) {
+            updateStatusChip(ui.projectStatus, `Failed to open project: ${err.message}`, "warn");
+          }
+        });
+      }
+      if (ui.theaterRevealBtn) {
+        ui.theaterRevealBtn.addEventListener("click", async () => {
+          try {
+            await fetchJson("/api/library/reveal", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ filename: state.selectedVideo?.filename || "" }),
+            });
+          } catch (err) {
+            updateStatusChip(ui.projectStatus, `Failed to reveal file: ${err.message}`, "warn");
+          }
+        });
+      }
+
+      // Library Live Filter
+      if (ui.librarySearch) {
+        ui.librarySearch.addEventListener("input", renderLibraryList);
+      }
+
+      // Continuous Playback: Advance to next song when current finishes
+      if (ui.theaterVideo) {
+        ui.theaterVideo.addEventListener("ended", () => {
+          if (!state.libraryVideos || state.libraryVideos.length <= 1) return;
+          const currIdx = state.libraryVideos.findIndex((v) => v.filename === state.selectedVideo?.filename);
+          if (currIdx >= 0 && currIdx + 1 < state.libraryVideos.length) {
+            playTheaterVideo(state.libraryVideos[currIdx + 1], true);
+          }
+        });
+      }
+
       if (ui.toggleLeft) {
         ui.toggleLeft.addEventListener("click", toggleLeftRail);
       }
